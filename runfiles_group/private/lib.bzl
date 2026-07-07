@@ -23,7 +23,11 @@ lib.transform_groups(runfiles_group_info, metadata_info = None, transform_info =
 
 lib.merge_to_limit(runfiles_group_info, metadata_info = None, max_groups, default_weight = 0, merged_group_name = None)
     Merges groups to fit within max_groups. Groups at the same rank
-    without do_not_merge may be merged. Lighter groups (by weight) merge first.
+    without do_not_merge may be merged. Merging prefers pairs that share the
+    same merge_affinity (the empty string "" is the shared "no affinity"
+    bucket); only when no same-affinity pair remains does it fall back to
+    merging across affinities. Within the preferred set, lighter groups
+    (by weight) merge first.
     Returns struct(runfiles_group_info, runfiles_group_metadata_info, group_count).
     The caller must check group_count — if it exceeds max_groups, merging could
     not reduce far enough (e.g., due to do_not_merge or groups in different ranks).
@@ -44,6 +48,9 @@ lib.collect_groups(ctx, deps, *, strip_executable_group = True)
     two parts of the dependency graph share the same data dep, they produce
     the same group name — the binary-level dict merge naturally deduplicates
     the group so the files are recorded only once.
+    Auto-generated "data#<label>" groups carry no metadata, so they take the
+    default empty merge_affinity ("") — a data dep that does not itself provide
+    RunfilesGroupInfo is never assigned an affinity.
     If strip_executable_group is True (default), the executable_group bit
     is cleared on all collected metadata entries. This is the correct
     default when collecting from data deps: the executable_group annotation
@@ -52,6 +59,14 @@ lib.collect_groups(ctx, deps, *, strip_executable_group = True)
     Returns struct(groups, metadata) where:
       groups: dict[str, runfiles]
       metadata: RunfilesGroupMetadataInfo or None
+
+lib.RANK_FOUNDATION / lib.RANK_SHARED_DEPS / lib.RANK_EXECUTABLE
+    Recommended rank anchors for group_metadata(rank = ...). Foundational
+    content (runtimes, interpreters, standard libraries) anchors at
+    RANK_FOUNDATION (-1000), shared third-party dependencies at
+    RANK_SHARED_DEPS (-100), and the executable / first-party code at
+    RANK_EXECUTABLE (0, the default). The anchors are spaced far apart so
+    finer sub-tiers can be slotted in between. See the README for details.
 """
 
 load("@bazel_features//:features.bzl", "bazel_features")
@@ -65,6 +80,22 @@ load(
 
 # Bazel < 9 includes to_json/to_proto in dir() results for providers.
 _PROVIDER_BUILTINS = [] if bazel_features.rules.no_struct_field_denylist else ["to_json", "to_proto"]
+
+# Recommended rank anchors (see README "Recommended rank values").
+#
+# Ranks form a partial order: lower rank = earlier layer = changes least often.
+# These anchors are spaced far apart on purpose so rule authors can slot extra
+# sub-tiers in between (e.g. an interpreter at RANK_FOUNDATION and a standard
+# library at RANK_FOUNDATION + 100) without renumbering everything.
+#
+# - RANK_FOUNDATION (-1000): foundational, rarely-changing content shared by
+#   many binaries — language runtimes, interpreters, standard libraries.
+# - RANK_SHARED_DEPS (-100): third-party dependencies shared across binaries.
+# - RANK_EXECUTABLE (0): the executable and first-party application code. This
+#   is also the default rank for groups without explicit metadata.
+_RANK_FOUNDATION = -1000
+_RANK_SHARED_DEPS = -100
+_RANK_EXECUTABLE = 0
 
 def _group_names(runfiles_group_info):
     """Returns the list of group names in a RunfilesGroupInfo instance."""
@@ -113,40 +144,62 @@ def _transform_groups(runfiles_group_info, runfiles_group_metadata_info = None, 
 def _effective_weight(entry, default_weight):
     return entry.weight if entry.weight != None else default_weight
 
-def _find_cheapest_pair(groups, meta, default_weight):
-    """Finds the cheapest same-rank mergeable pair. Returns (lighter, heavier) or None."""
-    by_rank = {}
-    for name in groups:
-        entry = meta[name]
-        if entry.do_not_merge:
+def _cheapest_pair_in_buckets(buckets, meta, default_weight):
+    """Returns the cheapest 2-lightest mergeable pair across all buckets.
+
+    Given a dict of bucket_key -> [group names], returns the pair as
+    (lighter, heavier), or None. Cost is the combined effective weight of the
+    two lightest groups in a bucket. Ties are broken deterministically by
+    (cost, rank, lighter, heavier).
+    """
+    best = None  # (cost, rank, lighter_name, heavier_name)
+    for _key, names in buckets.items():
+        if len(names) < 2:
             continue
-        rank = entry.rank
+        weighted = sorted(
+            [(_effective_weight(meta[n], default_weight), n) for n in names],
+            key = lambda pair: (pair[0], pair[1]),
+        )
+        lighter_name = weighted[0][1]
+        heavier_name = weighted[1][1]
+        cost = weighted[0][0] + weighted[1][0]
+        candidate = (cost, meta[lighter_name].rank, lighter_name, heavier_name)
+        if best == None or candidate < best:
+            best = candidate
+    if best == None:
+        return None
+    return (best[2], best[3])
+
+def _find_cheapest_pair(groups, meta, default_weight):
+    """Finds the best same-rank mergeable pair. Returns (lighter, heavier) or None.
+
+    Prefers pairs that share the same merge_affinity (the empty string "" is the
+    shared "no affinity" bucket). Among the preferred pairs the cheapest (lowest
+    combined weight) wins. Only when no same-affinity pair exists at any rank
+    does it fall back to merging the cheapest same-rank pair regardless of
+    affinity.
+    """
+    mergeable = [name for name in groups if not meta[name].do_not_merge]
+
+    # Tier 1: prefer merging groups that share the same (rank, merge_affinity).
+    by_rank_affinity = {}
+    for name in mergeable:
+        key = (meta[name].rank, meta[name].merge_affinity)
+        if key not in by_rank_affinity:
+            by_rank_affinity[key] = []
+        by_rank_affinity[key].append(name)
+    pair = _cheapest_pair_in_buckets(by_rank_affinity, meta, default_weight)
+    if pair != None:
+        return pair
+
+    # Tier 2: fall back to the cheapest same-rank pair across affinities.
+    by_rank = {}
+    for name in mergeable:
+        rank = meta[name].rank
         if rank not in by_rank:
             by_rank[rank] = []
         by_rank[rank].append(name)
-
-    best_pair = None
-    best_cost = None
-    for rank, mergeable in by_rank.items():
-        if len(mergeable) < 2:
-            continue
-        weighted = sorted(
-            [((_effective_weight(meta[n], default_weight), n)) for n in mergeable],
-            key = lambda pair: (pair[0], pair[1]),
-        )
-        cost = weighted[0][0] + weighted[1][0]
-        if best_cost == None or cost < best_cost or (cost == best_cost and rank < best_pair[0]):
-            best_pair = (rank, weighted[0][1], weighted[1][1])
-            best_cost = cost
-
-    if best_pair == None:
-        return None
-
-    lighter_name = best_pair[1]
-    heavier_name = best_pair[2]
-    if _effective_weight(meta[lighter_name], default_weight) > _effective_weight(meta[heavier_name], default_weight):
-        return (heavier_name, lighter_name)
-    return (lighter_name, heavier_name)
+    return _cheapest_pair_in_buckets(by_rank, meta, default_weight)
 
 def _merge_pair(groups, meta, lighter, heavier, default_weight, merged_group_name_fn):
     """Merges lighter into heavier, returns new (groups, meta) dicts."""
@@ -158,6 +211,7 @@ def _merge_pair(groups, meta, lighter, heavier, default_weight, merged_group_nam
         do_not_merge = False,
         weight = merged_weight,
         executable_group = meta[lighter].executable_group or meta[heavier].executable_group,
+        merge_affinity = meta[heavier].merge_affinity,
     )
 
     if merged_group_name_fn != None:
@@ -249,6 +303,7 @@ def _collect_groups(ctx, deps, *, strip_executable_group = True):
                         rank = entry.rank,
                         do_not_merge = entry.do_not_merge,
                         weight = entry.weight,
+                        merge_affinity = entry.merge_affinity,
                     )
                 else:
                     stripped[name] = entry
@@ -263,4 +318,8 @@ lib = struct(
     merge_to_limit = _merge_to_limit,
     merge_metadata = _merge_metadata,
     collect_groups = _collect_groups,
+    # Recommended rank anchors (see README "Recommended rank values").
+    RANK_FOUNDATION = _RANK_FOUNDATION,
+    RANK_SHARED_DEPS = _RANK_SHARED_DEPS,
+    RANK_EXECUTABLE = _RANK_EXECUTABLE,
 )

@@ -6,6 +6,14 @@ load("//producer/providers:providers.bzl", "StarlarkInfo")
 
 _GROUP_PREFIX = "starlark_runfiles_group#"
 
+# All groups produced by this ruleset share a single merge_affinity so that a
+# packager forced to merge prefers to keep Starlark groups together (and,
+# symmetrically, keeps other rulesets' groups together). Following the
+# recommendation, this is the ruleset's identity; a real ruleset would use its
+# module name (e.g. "rules_python"). Other modules may reuse this value to opt
+# their runfiles groups into the same affinity.
+_AFFINITY = "starlark"
+
 def _canonical_repo_name(ctx):
     return ctx.label.repo_name or "_main"
 
@@ -42,8 +50,9 @@ def _starlark_library_impl(ctx):
 
     metadata = lib.merge_metadata(dep_groups.metadata, data_groups.metadata)
     own_weight = ctx.attr.runfiles_weight if ctx.attr.runfiles_weight > 0 else None
+    own_affinity = ctx.attr.merge_affinity if ctx.attr.merge_affinity else _AFFINITY
     own_metadata = RunfilesGroupMetadataInfo(groups = {
-        group_name: lib.group_metadata(weight = own_weight),
+        group_name: lib.group_metadata(weight = own_weight, merge_affinity = own_affinity),
     })
     metadata = lib.merge_metadata(metadata, own_metadata)
 
@@ -83,6 +92,16 @@ starlark_library = rule(
         "runfiles_weight": attr.int(
             default = 0,
             doc = "Weight hint for this library's runfiles group. If > 0, set as the weight in RunfilesGroupMetadataInfo.",
+        ),
+        "merge_affinity": attr.string(
+            default = "",
+            doc = """\
+Overrides the merge_affinity of this library's runfiles group. If empty
+(default), the group uses the ruleset-wide affinity ("starlark") so that all
+Starlark groups prefer to merge together. Set this to share an affinity with
+another ruleset (the recommendation is to use a module name, e.g. all
+JVM-shaped libraries across modules could use "rules_java").
+""",
         ),
     },
 )

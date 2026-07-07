@@ -41,7 +41,7 @@ pkg_creator(
 |----------|:-:|:-:|:-:|---------|
 | `DefaultInfo` | **must** return | — | yes | Defines the executable and runfiles tree. Used as fallback when `RunfilesGroupInfo` is missing or the consumer doesn't support it. |
 | `RunfilesGroupInfo` | may return | — | no | Splits `DefaultInfo.default_runfiles` into named runfiles groups. |
-| `RunfilesGroupMetadataInfo` | may return | may add | no | Per-group metadata (rank, do_not_merge, weight, executable_group) controlling ordering, merge behavior, and executable placement. |
+| `RunfilesGroupMetadataInfo` | may return | may add | no | Per-group metadata (rank, do_not_merge, weight, executable_group, merge_affinity) controlling ordering, merge behavior, executable placement, and merge grouping. |
 | `RunfilesGroupTransformInfo` | — | may add | no | Transforms groups and metadata (e.g., exclude a group, remap names). |
 
 > **Full worked example:** The [`example/`](example/) directory contains a complete end-to-end demo. Look at [`example/producer/`](example/producer/) for `*_binary` rule implementation, [`example/consumer/`](example/consumer/) for packaging rule implementation, and [`example/src/`](example/src/) for user-facing `BUILD` files.
@@ -96,6 +96,7 @@ Each group can have:
 | `do_not_merge` | bool | False | If True, packaging rules must not merge this group with others. |
 | `weight` | int >= 0 or None | None | Hint for merge priority. Lighter groups are merged first when reducing group count. If None, the packager may apply its own default. |
 | `executable_group` | bool | False | If True, signals that the packager should place the executable file, repo mapping manifest, and other supporting files for the main entrypoint into this group. Only meaningful at the top level — `collect_groups` strips this bit by default (see below). |
+| `merge_affinity` | str | `""` | Best-effort merge grouping hint. When groups must be merged, groups that share the same `merge_affinity` are preferred merge partners (see [Group count limits](#group-count-limits)). The empty string `""` means "no affinity". |
 
 Groups not listed in the metadata dict get default values for all fields (the same applies if `RunfilesGroupMetadataInfo` is missing).
 
@@ -108,23 +109,56 @@ load("@rules_runfiles_group//runfiles_group:providers.bzl",
 
 providers.append(RunfilesGroupInfo(**groups))
 providers.append(RunfilesGroupMetadataInfo(groups = {
-    "foo_runfiles_group#interpreter": lib.group_metadata(rank = -2, do_not_merge = True),
-    "foo_runfiles_group#std": lib.group_metadata(rank = -1),
-    "foo_runfiles_group#app_code": lib.group_metadata(rank = 0, weight = 100, executable_group = True),
+    "foo_runfiles_group#interpreter": lib.group_metadata(
+        rank = lib.RANK_FOUNDATION, do_not_merge = True, merge_affinity = "rules_foo"),
+    "foo_runfiles_group#std": lib.group_metadata(
+        rank = lib.RANK_FOUNDATION + 100, merge_affinity = "rules_foo"),
+    "foo_runfiles_group#app_code": lib.group_metadata(
+        rank = lib.RANK_EXECUTABLE, weight = 100, executable_group = True, merge_affinity = "rules_foo"),
 }))
 ```
 
-Good rank defaults put foundational or shared content at lower ranks (negative rank numbers are supported). Note that groups with no ranking will have the default rank `0`, so you are able to place important groups relative to that.
-The following types of content should typically use a negative rank:
+#### Recommended rank values
 
-1. Interpreter / runtime
-2. Standard library
-3. Third-party dependencies
-4. First-party application code
+Ranks form a partial order: lower rank = earlier layer = the content that changes
+least often and is shared most widely. Negative ranks sort before the default rank
+of `0`, so foundational content ends up in the earliest (most cacheable) layers.
 
-This ordering maximizes cache reuse in layered formats — base layers change less frequently than application code.
+Use these anchors, exposed as constants for convenience:
+
+| Constant | Value | Use for |
+|----------|-------|---------|
+| `lib.RANK_FOUNDATION` | `-1000` | Foundational, rarely-changing content shared by many binaries: language runtimes, interpreters, standard libraries. |
+| `lib.RANK_SHARED_DEPS` | `-100` | Third-party dependencies shared across binaries. |
+| `lib.RANK_EXECUTABLE` | `0` | The executable and first-party application code. Also the default rank for groups without explicit metadata. |
+
+The anchors are spaced far apart on purpose: there is ample room to slot finer
+sub-tiers in between without renumbering everything. For example, an interpreter
+might sit at `RANK_FOUNDATION` while the standard library sits at
+`RANK_FOUNDATION + 100` — both foundational, but strictly ordered.
+
+This ordering maximizes cache reuse in layered formats — base layers change less
+frequently than application code.
 
 Within the same rank, the packager is free to order or merge groups as it sees fit. The partial ordering only guarantees that groups with lower rank appear before groups with higher rank.
+
+#### Grouping merges with `merge_affinity`
+
+`merge_affinity` is a best-effort hint that steers *which* groups get merged when a
+packager must reduce the group count (see [Group count limits](#group-count-limits)).
+Groups that share the same `merge_affinity` are preferred merge partners; merging
+only crosses affinities when no same-affinity pair remains.
+
+**Recommendation: use your module name as the affinity, and stamp it on every group
+your ruleset produces.** This keeps a ruleset's groups together under merge pressure
+instead of being interleaved with unrelated groups. Affinities are a shared namespace,
+so other modules may deliberately reuse a value to opt into the same grouping — for
+example, `rules_java` could be the affinity for all JVM-shaped groups, including those
+contributed by `rules_jvm_external`, Kotlin rules, and other Java-flavored rulesets.
+
+The empty string `""` means "no affinity". Auto-generated `data#<label>` groups (data
+deps that do not themselves provide `RunfilesGroupInfo`) are never assigned an affinity
+— they keep the empty affinity `""`.
 
 ### Creating groups
 
@@ -161,7 +195,7 @@ Most rules have the attributes `deps` and `data`. You should implement support f
 
 **`deps`** typically come from your own ruleset's `*_library` targets — they will likely provide `RunfilesGroupInfo`, so you should merge the groups and metadata with the others.
 
-**`data`** can be arbitrary targets. Some may provide `RunfilesGroupInfo` (e.g., a `*_binary` from a ruleset that supports it), while others won't. For targets without `RunfilesGroupInfo`, `collect_groups` automatically creates a named group `data#<canonical label>` whose value is a runfiles combining `DefaultInfo.files` and `DefaultInfo.default_runfiles`. This means that if two parts of the dependency graph share the same data dep, they produce the same group name — the binary-level dict merge naturally deduplicates the group so the data dep's files are recorded only once.
+**`data`** can be arbitrary targets. Some may provide `RunfilesGroupInfo` (e.g., a `*_binary` from a ruleset that supports it), while others won't. For targets without `RunfilesGroupInfo`, `collect_groups` automatically creates a named group `data#<canonical label>` whose value is a runfiles combining `DefaultInfo.files` and `DefaultInfo.default_runfiles`. This means that if two parts of the dependency graph share the same data dep, they produce the same group name — the binary-level dict merge naturally deduplicates the group so the data dep's files are recorded only once. These auto-generated `data#` groups carry no metadata, so they keep the default empty `merge_affinity` (`""`): a data dep that does not itself provide `RunfilesGroupInfo` is never assigned an affinity.
 
 By default, `collect_groups` strips the `executable_group` bit from all collected metadata entries. This is the correct behavior for `data` deps: when a binary appears as a data dependency of another binary, its `executable_group` annotation is meaningless because the outer binary has its own entrypoint. The top-level `*_binary` target should set `executable_group` on its own group instead.
 
@@ -176,15 +210,23 @@ groups["foo_runfiles_group#app_code"] = ctx.runfiles(files = my_own_files)
 
 metadata = lib.merge_metadata(dep_groups.metadata, data_groups.metadata)
 # executable_group has been stripped from dep metadata by collect_groups.
-# Set it on our own group instead:
+# Set it (and our ruleset-wide merge_affinity) on our own group instead:
 metadata = lib.merge_metadata(metadata, RunfilesGroupMetadataInfo(groups = {
-    "foo_runfiles_group#app_code": lib.group_metadata(executable_group = True),
+    "foo_runfiles_group#app_code": lib.group_metadata(executable_group = True, merge_affinity = "rules_foo"),
 }))
 ```
 
 ### Group count limits
 
-Packaging rules may enforce a maximum group count via `lib.merge_to_limit()`. For example, container image runtimes may limit the total number of layers an image can have. The merge algorithm respects `rank` (only merges within the same rank), `do_not_merge` (never merges protected groups), and `weight` (merges lightest groups first).
+Packaging rules may enforce a maximum group count via `lib.merge_to_limit()`. For example, container image runtimes may limit the total number of layers an image can have. The merge algorithm respects `rank` (only merges within the same rank), `do_not_merge` (never merges protected groups), `merge_affinity` (prefers same-affinity partners), and `weight` (merges lightest groups first).
+
+Concretely, `merge_to_limit` picks each merge in this order:
+
+1. **Same rank only.** Groups at different ranks are never merged.
+2. **Prefer same `merge_affinity`.** Among same-rank candidates, it first considers pairs that share a `merge_affinity` (the empty string `""` is the shared "no affinity" bucket). It only falls back to merging across affinities when no same-affinity pair remains at any rank.
+3. **Lightest first.** Within the preferred set, the two lightest groups (by `weight`) merge first.
+
+This means a ruleset that stamps its module name as the `merge_affinity` on all its groups will see those groups consolidated together under merge pressure, rather than interleaved with unrelated groups — even when an interleaved merge would be marginally cheaper by weight.
 
 Useful weight hints may be language-specific. Good examples include:
 
@@ -232,7 +274,7 @@ When resolving runfiles groups from a binary target, follow this well-defined or
 
 3. **Apply transforms:** Iterate through the binary's `aspect_hints` in order. For each hint that provides `RunfilesGroupTransformInfo`, apply it using `lib.transform_groups()`. The transform receives both the current `RunfilesGroupInfo` and `RunfilesGroupMetadataInfo` and returns updated versions of both.
 
-4. **Optionally merge:** If you need to enforce a maximum group count, call `lib.merge_to_limit(runfiles_group_info, metadata_info, max_groups = N)` before ordering. This merges the lightest same-rank groups until the count fits within the limit. Note: packagers may wish to implement their own group merging strategies instead of `lib.merge_to_limit`.
+4. **Optionally merge:** If you need to enforce a maximum group count, call `lib.merge_to_limit(runfiles_group_info, metadata_info, max_groups = N)` before ordering. This merges same-rank groups until the count fits within the limit, preferring same-`merge_affinity` partners and merging the lightest groups first (see [Group count limits](#group-count-limits)). Note: packagers may wish to implement their own group merging strategies instead of `lib.merge_to_limit`.
 
 5. **Apply ordering:** Call `lib.ordered_groups(runfiles_group_info, metadata_info)` to get the final ordered list of `struct(name, runfiles, metadata)` entries, sorted by rank. Each entry has `name` (string), `runfiles` (a runfiles object), and `metadata` (the group's metadata struct, or None if no explicit metadata was set for that group). When a group has `metadata.executable_group == True`, the packager should add the executable file, repo mapping manifest, and other supporting files for the main entrypoint to that group's runfiles.
 

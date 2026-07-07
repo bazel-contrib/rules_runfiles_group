@@ -7,6 +7,10 @@ load("//producer/providers:providers.bzl", "StarlarkInfo")
 
 _GROUP_PREFIX = "starlark_runfiles_group#"
 
+# Merge affinity stamped on every group this ruleset produces. See the
+# matching comment in starlark_library.bzl.
+_AFFINITY = "starlark"
+
 def _canonical_repo_name(ctx):
     return ctx.label.repo_name or "_main"
 
@@ -133,11 +137,11 @@ def _starlark_binary_impl(ctx):
         groups[_GROUP_PREFIX + "interpreter"] = ctx.runfiles(
             files = [interpreter_exe],
         ).merge(interpreter_info.default_runfiles)
-        metadata[_GROUP_PREFIX + "interpreter"] = lib.group_metadata(rank = -2, do_not_merge = True)
+        metadata[_GROUP_PREFIX + "interpreter"] = lib.group_metadata(rank = lib.RANK_FOUNDATION, do_not_merge = True, merge_affinity = _AFFINITY)
 
         # Special group: std
         groups[_GROUP_PREFIX + "std"] = stdlib[DefaultInfo].default_runfiles
-        metadata[_GROUP_PREFIX + "std"] = lib.group_metadata(rank = -1)
+        metadata[_GROUP_PREFIX + "std"] = lib.group_metadata(rank = lib.RANK_FOUNDATION + 100, merge_affinity = _AFFINITY)
 
         # Dep groups
         if ctx.attr.runfiles_grouping == "by_target":
@@ -145,20 +149,12 @@ def _starlark_binary_impl(ctx):
             groups[_GROUP_PREFIX + "entrypoint"] = ctx.runfiles(
                 files = [output, entrypoint, loadmap, properties],
             )
-            metadata[_GROUP_PREFIX + "entrypoint"] = lib.group_metadata(rank = 2, executable_group = True)
+            metadata[_GROUP_PREFIX + "entrypoint"] = lib.group_metadata(rank = lib.RANK_EXECUTABLE, executable_group = True, merge_affinity = _AFFINITY)
             for name in data_groups.groups:
-                dep_weight = _get_dep_weight(dep_metadata, name)
-                if _extract_repo(name) == own_repo:
-                    metadata[name] = lib.group_metadata(rank = 1, weight = dep_weight)
-                elif dep_weight != None:
-                    metadata[name] = lib.group_metadata(weight = dep_weight)
+                metadata[name] = _dep_group_metadata(dep_metadata, name, own_repo)
             for name, rf in dep_groups.groups.items():
                 groups[name] = rf
-                dep_weight = _get_dep_weight(dep_metadata, name)
-                if _extract_repo(name) == own_repo:
-                    metadata[name] = lib.group_metadata(rank = 1, weight = dep_weight)
-                elif dep_weight != None:
-                    metadata[name] = lib.group_metadata(weight = dep_weight)
+                metadata[name] = _dep_group_metadata(dep_metadata, name, own_repo)
 
         elif ctx.attr.runfiles_grouping == "by_repo":
             repo_runfiles = {}
@@ -169,6 +165,7 @@ def _starlark_binary_impl(ctx):
             all_dep_groups = {}
             all_dep_groups.update(data_groups.groups)
             all_dep_groups.update(dep_groups.groups)
+            repo_affinities = {}
             for name, rf in all_dep_groups.items():
                 repo = _extract_repo(name)
                 if repo not in repo_runfiles:
@@ -177,12 +174,20 @@ def _starlark_binary_impl(ctx):
                 w = _get_dep_weight(dep_metadata, name)
                 if w != None:
                     repo_weights[repo] = repo_weights.get(repo, 0) + w
+
+                # A repo group aggregates its members' groups. Adopt a member's
+                # affinity if one is set; data deps without RunfilesGroupInfo
+                # contribute the empty affinity and never override it.
+                affinity = _get_dep_affinity(dep_metadata, name)
+                if affinity:
+                    repo_affinities[repo] = affinity
             for repo, rs in repo_runfiles.items():
-                groups[_GROUP_PREFIX + (repo or "_main")] = rs[0] if len(rs) == 1 else rs[0].merge_all(rs[1:])
+                group_name = _GROUP_PREFIX + (repo or "_main")
+                groups[group_name] = rs[0] if len(rs) == 1 else rs[0].merge_all(rs[1:])
                 if repo == own_repo:
-                    metadata[_GROUP_PREFIX + (repo or "_main")] = lib.group_metadata(rank = 1, weight = repo_weights.get(repo, None), executable_group = True)
-                elif repo in repo_weights:
-                    metadata[_GROUP_PREFIX + (repo or "_main")] = lib.group_metadata(weight = repo_weights[repo])
+                    metadata[group_name] = lib.group_metadata(rank = lib.RANK_EXECUTABLE, weight = repo_weights.get(repo, None), executable_group = True, merge_affinity = _AFFINITY)
+                else:
+                    metadata[group_name] = lib.group_metadata(rank = lib.RANK_SHARED_DEPS, weight = repo_weights.get(repo, None), merge_affinity = repo_affinities.get(repo, ""))
 
         providers.append(RunfilesGroupInfo(**groups))
         providers.append(RunfilesGroupMetadataInfo(groups = metadata))
@@ -217,6 +222,29 @@ def _get_dep_weight(dep_metadata, name):
     if entry == None:
         return None
     return entry.weight
+
+def _get_dep_affinity(dep_metadata, name):
+    if dep_metadata == None:
+        return ""
+    entry = dep_metadata.groups.get(name, None)
+    if entry == None:
+        return ""
+    return entry.merge_affinity
+
+def _dep_group_metadata(dep_metadata, name, own_repo):
+    """Metadata for a collected dep/data group in by_target grouping.
+
+    First-party (own-repo) groups sit just below the executable; third-party
+    groups anchor at the shared-deps rank. Weight and merge_affinity are carried
+    through from the collected metadata so the packager can merge intelligently.
+    """
+    weight = _get_dep_weight(dep_metadata, name)
+    affinity = _get_dep_affinity(dep_metadata, name)
+    if _extract_repo(name) == own_repo:
+        rank = lib.RANK_EXECUTABLE - 1
+    else:
+        rank = lib.RANK_SHARED_DEPS
+    return lib.group_metadata(rank = rank, weight = weight, merge_affinity = affinity)
 
 def _format_repo(repo_tuple):
     return repo_tuple[0] + "\0" + repo_tuple[1]
