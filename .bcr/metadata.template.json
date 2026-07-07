@@ -1,5 +1,5 @@
 {
-  "homepage": "https://github.com/hermeticbuild/rules_runfiles_group",
+  "homepage": "https://github.com/bazel-contrib/rules_runfiles_group",
   "maintainers": [
     {
       "name": "Malte Poll",
@@ -9,7 +9,7 @@
     }
   ],
   "repository": [
-    "github:hermeticbuild/rules_runfiles_group"
+    "github:bazel-contrib/rules_runfiles_group"
   ],
   "versions": [],
   "yanked_versions": {}
