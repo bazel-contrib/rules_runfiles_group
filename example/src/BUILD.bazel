@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
 load("@rules_runfiles_group//runfiles_group:runfiles_group_analysis_test.bzl", "runfiles_group_analysis_test")
 load("//consumer/rules:fake_package.bzl", "fake_package")
+load("//producer/rules:asset_bundle.bzl", "asset_bundle")
 load("//producer/rules:skip_interpreter.bzl", "skip_interpreter")
 load("//src:group_names.bzl", "IRS_F1040")
 load("//producer/rules:starlark_binary.bzl", "starlark_binary")
@@ -35,17 +36,47 @@ starlark_library(
     name = "lib_a",
     srcs = ["lib_a.star"],
     data = ["a.txt"],
+    # Its group inherits the ruleset-wide "starlark" merge_affinity.
+    runfiles_weight = 10,
 )
 
 starlark_library(
     name = "lib_b",
     srcs = ["lib_b.star"],
     data = ["b.txt"],
+    runfiles_weight = 40,
 )
 
+# A second, unrelated "ruleset". Everything it produces carries the
+# "asset_bundle" merge_affinity (see producer/rules/asset_bundle.bzl), which is
+# distinct from the "starlark" affinity used by starlark_library/starlark_binary.
+asset_bundle(
+    name = "assets_ui",
+    srcs = ["assets/theme.conf"],
+    weight = 11,
+)
+
+asset_bundle(
+    name = "assets_docs",
+    srcs = [
+        "assets/README.md",
+        "assets/messages.properties",
+    ],
+    weight = 12,
+)
+
+# adder pulls in groups from two rulesets at the same rank: the Starlark
+# libraries (affinity "starlark") and the asset bundles (affinity
+# "asset_bundle"). Its data files (a.txt, b.txt) arrive as auto-generated
+# "data#" groups with no affinity (""). See the *_merged tests below for how
+# merge_affinity keeps each ruleset's groups together.
 starlark_binary(
     name = "adder",
     src = "adder.star",
+    data = [
+        ":assets_docs",
+        ":assets_ui",
+    ],
     runfiles_grouping = "by_target",
     deps = [
         ":lib_a",
@@ -135,6 +166,11 @@ runfiles_group_analysis_test(
 )
 
 # Per-binary tests: ordering without group limits
+#
+# adder mixes three merge affinities at rank RANK_EXECUTABLE - 1:
+#   "asset_bundle": assets_docs(12), assets_ui(11)   (the other ruleset)
+#   ""            : data#a.txt(0), data#b.txt(0)     (data deps, no affinity)
+#   "starlark"    : lib_a(10), lib_b(40)             (this ruleset)
 
 runfiles_group_analysis_test(
     name = "test_adder_groups",
@@ -142,6 +178,8 @@ runfiles_group_analysis_test(
     expected_group_names = [
         P + "interpreter",
         P + "std",
+        "asset_bundle#assets_docs",
+        "asset_bundle#assets_ui",
         "data#@@//src:a.txt",
         "data#@@//src:b.txt",
         P + "//src:lib_a",
@@ -178,17 +216,42 @@ runfiles_group_analysis_test(
 
 # Per-binary tests: ordering with group limits
 
+# max_groups=6: three merges, each within a single affinity, even though
+# cheaper cross-affinity pairs exist (e.g. the free data merge plus a
+# starlark/asset pair). merge_affinity consolidates each ruleset first:
+#   assets_ui(11)+assets_docs(12)   -> one "asset_bundle" group
+#   data#a.txt(0)+data#b.txt(0)     -> one "" group
+#   lib_a(10)+lib_b(40)             -> one "starlark" group
 runfiles_group_analysis_test(
     name = "test_adder_groups_merged",
     binaries = [":adder"],
     expected_group_names = [
         P + "interpreter",
         P + "std",
-        "data#@@//src:a.txt+data#@@//src:b.txt+//src:lib_a+//src:lib_b",
+        "asset_bundle#assets_ui+asset_bundle#assets_docs",
+        "data#@@//src:a.txt+data#@@//src:b.txt",
+        P + "//src:lib_a+//src:lib_b",
         P + "entrypoint",
     ],
     group_name_prefix = P,
-    max_groups = 4,
+    max_groups = 6,
+    overlapping_group_behavior = "error",
+)
+
+# max_groups=5: no same-affinity pair remains, so merging falls back across
+# affinities, joining the (cheapest) "" data group into the "asset_bundle" group.
+runfiles_group_analysis_test(
+    name = "test_adder_groups_cross_affinity",
+    binaries = [":adder"],
+    expected_group_names = [
+        P + "interpreter",
+        P + "std",
+        "data#@@//src:a.txt+data#@@//src:b.txt+asset_bundle#assets_ui+asset_bundle#assets_docs",
+        P + "//src:lib_a+//src:lib_b",
+        P + "entrypoint",
+    ],
+    group_name_prefix = P,
+    max_groups = 5,
     overlapping_group_behavior = "error",
 )
 
@@ -224,11 +287,13 @@ runfiles_group_analysis_test(
     overlapping_group_behavior = "error",
 )
 
-# merge_demo tests: 8 groups total
-# rank -2: interpreter (do_not_merge)
-# rank -1: std
-# rank  0: colors(42), limits(43), units(40), mathlib(2296), templates(7092)
-# rank  1: _main
+# merge_demo tests: 8 groups total. All groups are produced by starlark rules,
+# so they all share the "starlark" affinity — merging therefore falls back to
+# pure weight order within each rank (same result as if no affinity were set).
+# rank RANK_FOUNDATION      : interpreter (do_not_merge)
+# rank RANK_FOUNDATION + 100: std
+# rank RANK_SHARED_DEPS     : colors(42), limits(43), units(40), mathlib(2296), templates(7092)
+# rank RANK_EXECUTABLE      : _main
 
 fake_package(
     name = "merge_demo_pkg",
