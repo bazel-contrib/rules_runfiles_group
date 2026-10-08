@@ -1,100 +1,91 @@
-"""Library for producing and consuming runfiles groups.
+"""Library for describing, materializing and merging runfiles groups.
+
+The protocol has three participants:
+
+    RULES describe how runfiles are grouped. A rule opts in with a runfiles group describer (see
+        RunfilesGroupDescriberInfo) that returns runfiles_groups.node(): the runfiles
+        the target ITSELF adds, as RunfilesGroupInfo entries, and the attributes it
+        merely merges runfiles in from.
+    PACKAGERS build artifacts. A packager supplies two operations through
+        runfiles_groups.packager_ops(): `materialize` turns one target's added
+        runfiles into the packager's own artifact (a tar layer, say), and `merge`
+        combines several of those into one. Work therefore happens at the node that
+        owns the runfiles, and is shared by every consumer of that node.
+    THIS LIBRARY connects them. runfiles_groups.aspect_step() is the body of a
+        packager's aspect, and runfiles_groups.finalize() runs once at the root.
+        The library does not ship a packager's aspect, because every packager needs
+        its own provider: two aspects returning the same provider on one target
+        collide. The identity packager (//runfiles_group:identity_packager.bzl)
+        is the reference implementation.
 
 GROUP NAMES come in two forms, because there are two kinds of group:
 
     a Label   -- a PER-TARGET group: "the runfiles this one target contributes".
                  Pass ctx.label for your own group, or dep.label for a dependency's.
-                 Globally unique, so it needs no ruleset prefix, and free: Bazel
-                 already interns the Label.
+                 Globally unique, so it needs no ruleset prefix.
     a string  -- a NAMED group that several targets contribute to: "interpreter",
                  "std", "third_party". Strings share one namespace across every
-                 provider merged into a binary, so prefix them with something
+                 ruleset reachable from a binary, so prefix them with something
                  unique to your ruleset ("my_rules#interpreter").
 
-Both forms are ordered, folded, merged and looked up the same way. Use
-runfiles_groups.name_str() wherever you need a plain string -- an artifact name,
-an output group key, a manifest line, an error message.
+Both forms are ordered, folded, merged and looked up the same way.
 
-PRODUCER SIDE -- O(1) allocations per target, never flattens anything:
+RULE SIDE -- inside a describer (target, ctx), with rule attributes under ctx.rule:
 
     runfiles_groups.entry(name, content, kind, rank, do_not_merge, weight, merge_affinity)
-        One group entry. The only supported entry constructor. `content` is either a
-        runfiles object or, for a group that is only files, the depset of File
-        itself -- which costs nothing, where wrapping it in a runfiles object
-        retains one per group for no added information.
-    runfiles_groups.derive(entry, **overrides)
-        A copy of an entry with some fields changed. Use this instead of
-        re-listing every field, which is how a re-ranking producer or a renaming
-        transform silently resets the fields it forgot.
-    runfiles_groups.collect(ctx, deps = , data = , own = , transitive = )
-        The whole entry depset for a target: its own entries plus its
-        dependencies'. `deps` and `data` are each an iterable of ctx.attr values,
-        so a rule with several Label-typed attributes passes them all in one
-        call. Dependencies that provide RunfilesGroupInfo contribute their
-        `entries` by reference; a `data` dependency that does not gets one
-        synthesized per-target entry, named by its Label, while a `deps`
-        dependency that does not contributes nothing.
-    runfiles_groups.entries(direct = , transitive = )
-        An entry depset with the order the protocol requires, for producers that
-        do not collect from dependencies.
+        Runfiles this target adds to one group. `content` is either a runfiles
+        object or, for a group that is only files, the depset of File itself.
+    runfiles_groups.merge_from(attr, fallback = , into = , regroup = , **metadata)
+        Merge in the groups of the targets in one attribute. `fallback =
+        "synthesize"` gives a dependency that does not describe itself one group
+        holding its DefaultInfo; `into` renames every incoming group; `regroup` is
+        a module-level def (partial, owner_label) -> dict of overrides, or None.
+        Renaming and regrouping only touch metadata: the packager's artifacts pass
+        through unchanged.
+    runfiles_groups.node(add = , merge_from = , executable_group = )
+        The final grouping for a single target and return value of the describer.
+        `merge_from` takes attribute names or merge_from() values and defaults
+        to every attribute in _runfiles_group_attrs.
+    runfiles_groups.make_describer_rule(describe = )
+        The rule whose single target a rule's _runfiles_group_describer points at.
 
-    Then: RunfilesGroupInfo(entries = ..., executable_group = ...)
+PACKAGER SIDE:
 
-CONSUMER SIDE -- flatten exactly ONCE per consuming target:
-
-    runfiles_groups.resolve(ctx, source, aspect_hints = )
-        THE ONLY to_list() IN THE PROTOCOL. Flattens the entry depset, folds
-        duplicate group names, runs the hint transforms, and orders by (rank, name).
-        Returns struct(groups, by_name, executable_group), or None when the source
-        carries no groups -- in which case the packager must fall back to
-        DefaultInfo.default_runfiles as a single group.
-          groups:           list of entries ordered by (rank, name)
-          by_name:          dict[Label|str, entry]
-          executable_group: Label, str or None, guaranteed to be a key of by_name
-    runfiles_groups.resolved(groups, executable_group = )
-        Builds a resolved value from a list of entries. This is what a transform
-        returns.
-    runfiles_groups.files(entry)
-        Every File a group contributes, as a depset. Both content forms.
-    runfiles_groups.runfiles(ctx, entry)
-        A group's contents as a runfiles object. Both content forms; allocates
-        only for the depset form, so never hold the result in a provider.
-    runfiles_groups.union(ctx, contents)
-        Several groups' contents unioned into one, for a producer that aggregates
-        groups. Stays in the depset form when every part is one.
-    runfiles_groups.name_str(entry_or_name)
-        The canonical string form of a group name. Accepts an entry too.
-    runfiles_groups.group_names(resolved)
-        Sorted list of canonical name strings.
-    runfiles_groups.index_by_name_str(resolved)
-        dict[str, entry], for configuration that names groups as strings.
-    runfiles_groups.limit(ctx, resolved, max_groups = , default_weight = ,
+    runfiles_groups.packager_ops(materialize = , merge = , dedup = )
+        dedup = "eager" combines groups that share a name on the target where
+        they meet during aspect application; "root" leaves it all to finalize().
+    runfiles_groups.PACKAGER_INFO_FIELDS
+        The fields of the packager's own provider.
+    runfiles_groups.ATTR_ASPECTS
+        The aspect's attr_aspects: Uses aspect propagation filter (Bazel 9+), "*" before that.
+    runfiles_groups.aspect_step(target, ctx, ops, info = )
+        The aspect implementation's body: MyInfo(**aspect_step(...)).
+    runfiles_groups.finalize(ctx, info, ops, aspect_hints = , max_groups = ,
+                             default_weight = , merged_group_name = )
+        Flattens the partial groups, combines those that share a name,
+        honors aspect hints (transforms), merges groups down to max_groups,
+        and orders by (rank, name). Returns struct(groups, by_name, executable_group, group_count),
+        whose groups are RunfilesGroupPartialInfo.
+    runfiles_groups.limit(ctx, ops, resolved, max_groups = , default_weight = ,
                           merged_group_name = )
-        Merges groups until at most max_groups remain, respecting rank,
-        do_not_merge, merge_affinity and weight. Returns a resolved value plus
-        `group_count`, which the caller MUST check: do_not_merge and rank
-        constraints can make max_groups unreachable.
-
-runfiles_groups.resolve and runfiles_groups.limit take a `ctx` for one reason:
-unioning a files-only group's depset with another group's runfiles object requires
-ctx.runfiles(), the only lift Bazel offers. They allocate nothing when no union
-mixes the two forms.
-
-Call runfiles_groups.resolve() once per *consuming* target, from a non-propagating
-aspect or a rule. Never from a *_library rule: runfiles_groups.collect() is the
-O(1) call, runfiles_groups.resolve() is the O(closure) one.
+        finalize()'s max_groups step on its own, for a packager whose limit
+        depends on finalize()'s result.
+    runfiles_groups.IDENTITY_OPS
+        The packager whose handle is the runfiles content itself, and whose merge
+        is runfiles_groups.union(). Used for testing.
+    runfiles_groups.resolved(groups, executable_group = ) / runfiles_groups.derive()
+        What a RunfilesGroupTransformInfo transform returns, and how it edits a
+        group's metadata.
+    runfiles_groups.files(content) / runfiles_groups.runfiles(ctx, content) /
+    runfiles_groups.union(ctx, contents)
+        Read and combine runfiles content values (a depset of File or a runfiles
+        object), e.g. an entry's content or an identity packager's handle.
+    runfiles_groups.name_str() / group_names() / index_by_name_str()
+        Naming helpers.
 
 runfiles_groups.KINDS / runfiles_groups.DEFAULT_METADATA
     The closed set of `kind` values and the metadata a group has when its producer
-    sets none of it.
-
-runfiles_groups.RULE_ATTRS / runfiles_groups.is_enabled(ctx)
-    A pair. Rule authors merge runfiles_groups.RULE_ATTRS into their rule's attrs
-    to gain access to the global RunfilesGroupInfo on/off switch
-    (@rules_runfiles_group//runfiles_group:enabled, default False) and gate
-    provider emission on runfiles_groups.is_enabled(ctx). A rule that calls
-    runfiles_groups.is_enabled MUST have merged runfiles_groups.RULE_ATTRS, or the
-    read fails.
+    doesn't set it.
 
 runfiles_groups.RANK_FOUNDATION / runfiles_groups.RANK_SHARED_DEPS /
 runfiles_groups.RANK_EXECUTABLE
@@ -103,1088 +94,66 @@ runfiles_groups.RANK_EXECUTABLE
     dependencies at RANK_SHARED_DEPS (-100), and the executable / first-party code
     at RANK_EXECUTABLE (0, the default). The anchors are spaced far apart so finer
     sub-tiers can be slotted in between. See the README for details.
+
+runfiles_groups.RULE_ATTRS / runfiles_groups.is_enabled(ctx)
+    Deprecated. The global on/off switch predates on-demand collection through an
+    aspect, and nothing in the protocol reads it any more.
 """
 
-load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
+load("//runfiles_group/private/lib:aspect_step.bzl", "aspect_step")
+load("//runfiles_group/private/lib:constants.bzl", "RANK_EXECUTABLE", "RANK_FOUNDATION", "RANK_SHARED_DEPS")
+load("//runfiles_group/private/lib:content.bzl", "content_files", "content_runfiles", "union_contents")
+load("//runfiles_group/private/lib:describe.bzl", "make_describer_rule", "make_merge_from", "make_node")
+load("//runfiles_group/private/lib:entry.bzl", "make_entry")
+load("//runfiles_group/private/lib:finalize.bzl", "finalize")
+
+# buildifier: disable=deprecated-function
+load("//runfiles_group/private/lib:flag.bzl", "RULE_ATTRS", "is_enabled")
+load("//runfiles_group/private/lib:limit.bzl", "limit")
+load("//runfiles_group/private/lib:names.bzl", "group_names", "index_by_name_str", "name_str")
 load(
-    "//runfiles_group/private/providers:runfiles_group_entry_info.bzl",
-    "DEFAULT_METADATA",
-    "KINDS",
-    "RunfilesGroupEntryInfo",
+    "//runfiles_group/private/lib:packager.bzl",
+    "ATTR_ASPECTS",
+    "IDENTITY_OPS",
+    "PACKAGER_INFO_FIELDS",
+    "packager_ops",
 )
-load("//runfiles_group/private/providers:runfiles_group_info.bzl", "RunfilesGroupInfo")
-load("//runfiles_group/private/providers:runfiles_group_transform_info.bzl", "RunfilesGroupTransformInfo")
-
-# Recommended rank anchors (see README "Recommended rank values").
-#
-# Ranks form a partial order: lower rank = earlier layer = changes least often.
-# These anchors are spaced far apart on purpose so rule authors can slot extra
-# sub-tiers in between (e.g. an interpreter at RANK_FOUNDATION and a standard
-# library at RANK_FOUNDATION + 100) without renumbering everything.
-_RANK_FOUNDATION = -1000
-_RANK_SHARED_DEPS = -100
-_RANK_EXECUTABLE = 0
-
-# Bazel keeps one empty depset per order, process-wide.
-_NO_ENTRIES = depset()
-
-_DEPSET_TYPE = type(_NO_ENTRIES)
-_LABEL_TYPE = type(Label("@rules_runfiles_group//runfiles_group"))
-_STRING_TYPE = type("")
-_INT_TYPE = type(0)
-_BOOL_TYPE = type(False)
-_TARGET_TYPE = "Target"
-_STRUCT_TYPE = type(struct())
-_LIST_TYPE = type([])
-_TUPLE_TYPE = type(())
-_DICT_TYPE = type({})
-
-_ENTRY_FIELDS = ["name", "content", "kind", "rank", "do_not_merge", "weight", "merge_affinity"]
-
-# ------------------------------------------------------------------ group names
-
-def _name_str(value):
-    """Canonical string form of a group name, for display and artifact naming.
-
-    Not injective by construction: nothing stops a producer from naming one group
-    with `Label("//p:t")` and another with the string `"@@//p:t"`. Anything that
-    *keys* on the result must therefore reject a collision rather than let one
-    group quietly overwrite another -- see runfiles_groups.index_by_name_str and
-    runfiles_groups.limit.
-
-    Args:
-        value: A group name (a Label or a string), or an entry.
-
-    Returns:
-        str(label) for a per-target group, the name itself for a named one.
-    """
-
-    # Label is checked before the entry case on purpose: a Label has a `name`
-    # field of its own (the target name), so probing for `.name` first would
-    # quietly return "lib_a" instead of "//src:lib_a".
-    if type(value) == _LABEL_TYPE:
-        return str(value)
-    if type(value) == _STRING_TYPE:
-        return value
-    name = value.name
-    if type(name) == _LABEL_TYPE:
-        return str(name)
-    return name
-
-def _check_name(where, name):
-    kind = type(name)
-    if kind == _LABEL_TYPE:
-        return
-    if kind != _STRING_TYPE or not name:
-        fail("{}: name must be a Label or a non-empty string, got {}".format(where, repr(name)))
-
-def _sort_key(name):
-    """A comparison token for a group name that works across both forms.
-
-    A tuple comparison stops at the first unequal element, so putting the form
-    discriminator first means a Label is never compared against a string -- which
-    Starlark rejects outright. Per-target groups sort before named ones within a
-    rank; intra-rank order is unspecified by the protocol either way.
-    """
-    if type(name) == _LABEL_TYPE:
-        return (0, name)
-    return (1, name)
-
-def _sorted_name_strs(names):
-    """Sorted string forms of a collection of group names, for diagnostics."""
-    return sorted([_name_str(name) for name in names])
-
-def _described_name(name):
-    """A group name rendered with its form, so a Label and a string never look alike."""
-    if type(name) == _LABEL_TYPE:
-        return "Label({})".format(repr(_name_str(name)))
-    return repr(name)
-
-# --------------------------------------------------------------- entry contents
-
-def _check_content(where, content):
-    """Fails unless content is one of the two legal forms. Allocates nothing."""
-    if type(content) == _DEPSET_TYPE:
-        return
-
-    # A capability test rather than a type name, and merge_all is the right
-    # capability: it is what _union() and every merging packager calls, and no other
-    # value a producer might pass by mistake has it -- a depset's whole Starlark
-    # surface is to_list(). A struct forging the field still gets through; that is
-    # the residual cost of not naming the type, and it fails on first use.
-    if not hasattr(content, "merge_all"):
-        fail("{}: content must be a runfiles object or a depset of File, got {}".format(
-            where,
-            type(content),
-        ))
-
-def _stored_content(where, content):
-    """Validates content and returns the form an entry stores."""
-    _check_content(where, content)
-    if type(content) != _DEPSET_TYPE:
-        return content
-
-    # Rewrapped in default order rather than stored as handed over:
-    # ctx.runfiles(transitive_files = ) rejects preorder and topological depsets --
-    # unconditionally, empty ones included -- and Starlark can neither read a
-    # depset's order back nor probe it soundly. Laundering here is the only way a
-    # producer's depset cannot fail inside somebody else's packaging rule, and it is
-    # free for the case that matters: depset(transitive = [d]) hands back d itself
-    # when d is already default-ordered.
-    return depset(transitive = [content])
-
-def _files(entry):
-    """Returns every File a group contributes, as a depset.
-
-    The read path for a packager that only needs paths -- a manifest, an output
-    group, a layer's contents. It allocates nothing for a files-only group and, for
-    a runfiles-form group, only the depset wrapper Bazel builds per `.files` access.
-
-    Note what it deliberately does not include: the symlinks, root symlinks and
-    empty filenames of a runfiles-form group. A packager that must place a complete
-    runfiles tree wants runfiles_groups.runfiles() instead.
-
-    Args:
-        entry: A group entry.
-
-    Returns:
-        A depset of File.
-    """
-    content = entry.content
-    if type(content) == _DEPSET_TYPE:
-        return content
-    return content.files
-
-def _runfiles(ctx, entry):
-    """Returns a group's contents as a runfiles object.
-
-    Identity for a group that already carries one; for a files-only group it builds
-    one, which is why this takes a ctx. Never store the result in a provider: doing
-    so re-retains, per consuming target, exactly the object the producer avoided.
-
-    Args:
-        ctx: The rule or aspect context. ctx.runfiles() is available in both.
-        entry: A group entry.
-
-    Returns:
-        A runfiles object holding the group's contents.
-    """
-    content = entry.content
-    if type(content) == _DEPSET_TYPE:
-        return ctx.runfiles(transitive_files = content)
-    return content
-
-def _union(ctx, contents):
-    """Unions several groups' contents into one content value.
-
-    For a producer that aggregates groups -- one group per repository out of one
-    group per target, say. Pass `entry.content` values and/or runfiles objects of
-    your own; the result goes straight into runfiles_groups.entry(content = ...).
-
-    Stays in the depset form when every part is one, so aggregating files-only
-    groups still retains no runfiles object. A mixed union is the only thing in the
-    protocol that must build one, because Bazel offers no way to merge a depset into
-    a runfiles object other than ctx.runfiles().
-
-    Args:
-        ctx: The rule or aspect context.
-        contents: List of content values (runfiles objects or depsets of File).
-
-    Returns:
-        A content value: a depset of File if every part was one, else a runfiles
-        object.
-    """
-    files = []
-    runfiles = []
-    for content in contents:
-        if type(content) == _DEPSET_TYPE:
-            files.append(content)
-        else:
-            _check_content("runfiles_groups.union", content)
-            runfiles.append(content)
-    if not runfiles:
-        # Returns the sole part itself when there is only one.
-        return depset(transitive = files)
-    if files:
-        runfiles.append(ctx.runfiles(transitive_files = depset(transitive = files)))
-    if len(runfiles) == 1:
-        return runfiles[0]
-
-    # One merge_all over all parts, not a pairwise fold: a fold retains a two-slot
-    # array per step and deepens the artifact DAG once per part.
-    return runfiles[0].merge_all(runfiles[1:])
-
-# ---------------------------------------------------------------- producer side
-
-def _entry(*, name, content, kind = "", rank = _RANK_EXECUTABLE, do_not_merge = False, weight = None, merge_affinity = ""):
-    """Creates one validated group entry.
-
-    Args:
-        name: The group's identity, in one of two forms.
-
-            A **Label** for a per-target group -- "the runfiles this one target
-            contributes". Pass `ctx.label` for your own, or a dependency's
-            `dep.label`. A Label is globally unique, so it needs no ruleset prefix,
-            and it costs nothing: Bazel already interns it.
-
-            A **string** for a named group that several targets contribute to --
-            "interpreter", "std", "third_party". Strings live in a namespace shared
-            by every provider merged into the same binary, so prefix them with
-            something unique to your ruleset, e.g. "my_rules#interpreter".
-        content: The group's contents, in one of two forms.
-
-            A **depset of File** for a group that is only files, which most
-            *_library groups are. Hand over the depset you already built: the entry
-            then points at it, where wrapping it in a runfiles object would retain
-            an extra ~64 bytes per group -- a 7-field Runfiles plus the nested set
-            node its compile-order builder has to allocate -- carrying no
-            information the depset does not.
-
-            A **runfiles object** for anything else, and for contents you received
-            from another rule. This is the general form: it is the only one that can
-            carry symlinks, root symlinks and empty filenames.
-
-            Consumers read either form through runfiles_groups.files() and
-            runfiles_groups.runfiles().
-        kind: One of runfiles_groups.KINDS. A stable selector for packagers,
-            unaffected by renaming. Does not influence ordering or merging. Default "".
-        rank: Partial ordering key. Lower rank = earlier layer. Default 0.
-        do_not_merge: If True, packagers must not merge this group. Default False.
-        weight: Merge priority hint (int >= 0 or None). Lighter groups merge
-            first. Default None.
-        merge_affinity: Merge grouping hint. Groups that share an affinity are
-            preferred merge partners. "" means no affinity. Default "".
-
-    Returns:
-        A group entry, suitable as an element of a RunfilesGroupInfo entry depset.
-    """
-
-    # Validation happens here, once per group, because the depset element type is
-    # only weakly checked: every struct-like value has element type "struct", so a
-    # malformed foreign entry would type-check and then fail inside somebody
-    # else's consumer.
-    _check_name("runfiles_groups.entry", name)
-
-    content = _stored_content("runfiles_groups.entry", content)
-    if kind not in KINDS:
-        fail("runfiles_groups.entry: kind must be one of {}, got {}".format(KINDS, repr(kind)))
-    if type(rank) != _INT_TYPE:
-        fail("runfiles_groups.entry: rank must be an int, got ", type(rank))
-    if type(do_not_merge) != _BOOL_TYPE:
-        fail("runfiles_groups.entry: do_not_merge must be a bool, got ", type(do_not_merge))
-    if weight != None:
-        if type(weight) != _INT_TYPE:
-            fail("runfiles_groups.entry: weight must be an int or None, got ", type(weight))
-        if weight < 0:
-            fail("runfiles_groups.entry: weight must be >= 0, got ", weight)
-    if type(merge_affinity) != _STRING_TYPE:
-        fail("runfiles_groups.entry: merge_affinity must be a string, got ", type(merge_affinity))
-    return RunfilesGroupEntryInfo(
-        name = name,
-        content = content,
-        kind = kind,
-        rank = rank,
-        do_not_merge = do_not_merge,
-        weight = weight,
-        merge_affinity = merge_affinity,
-    )
-
-def _derive(entry, **overrides):
-    """Copies an entry, changing only the fields passed.
-
-    Args:
-        entry: The entry to copy.
-        **overrides: Any subset of the fields runfiles_groups.entry() takes.
-
-    Returns:
-        A new validated entry.
-    """
-    for field in overrides:
-        if field not in _ENTRY_FIELDS:
-            fail("runfiles_groups.derive: unknown field '{}', expected one of {}".format(field, _ENTRY_FIELDS))
-    return _entry(
-        name = overrides.get("name", entry.name),
-        content = overrides.get("content", entry.content),
-        kind = overrides.get("kind", entry.kind),
-        rank = overrides.get("rank", entry.rank),
-        do_not_merge = overrides.get("do_not_merge", entry.do_not_merge),
-        weight = overrides.get("weight", entry.weight),
-        merge_affinity = overrides.get("merge_affinity", entry.merge_affinity),
-    )
-
-def _entries(direct = [], transitive = []):
-    """Builds an entry depset with the order the protocol requires.
-
-    Args:
-        direct: Entries owned by this target.
-        transitive: Entry depsets from dependencies, e.g. the result of
-            runfiles_groups.collect().
-
-    Returns:
-        A depset of entries, order "default".
-    """
-
-    # "default" (stable) order is the only one that can be merged with any other,
-    # which a producer needs in order to combine entry depsets from foreign
-    # rulesets. Traversal order is never observable: runfiles_groups.resolve()
-    # sorts.
-    return depset(direct, transitive = transitive)
-
-def _attr_targets(where, attrs):
-    """Flattens an iterable of rule attribute values to the Targets inside them.
-
-    Every Label-typed attribute kind hands ctx.attr a differently shaped value,
-    and a Target can sit at any of three depths:
-
-        attr.label                    Target
-        attr.label_list               list of Target
-        attr.label_keyed_string_dict  dict Target -> string
-        attr.string_keyed_label_dict  dict string -> Target
-        attr.label_list_dict          dict string -> list of Target
-
-    Which side of a keyed dict holds the Targets depends on the kind, so both are
-    inspected and the string side is skipped rather than rejected. That is also
-    why the dict kinds cannot be told apart from each other here -- and need not
-    be: what a caller wants from any of them is the Targets.
-
-    Starlark has no recursion, and this needs none: those five are the whole set,
-    and Bazel cannot add a deeper shape without adding an attribute kind.
-
-    Args:
-        where: Call-site description for error messages.
-        attrs: Iterable of ctx.attr values.
-
-    Returns:
-        A flat list of Targets. One short-lived list per call, and no copy of
-        anything a Target holds.
-    """
-    targets = []
-    for value in attrs:
-        kind = type(value)
-        if kind == _TARGET_TYPE:
-            targets.append(value)
-        elif kind == _LIST_TYPE or kind == _TUPLE_TYPE:
-            _append_targets(where, targets, value)
-        elif kind == _DICT_TYPE:
-            for key, item in value.items():
-                _append_dict_half(where, targets, key)
-                _append_dict_half(where, targets, item)
-        else:
-            fail(("{}: expected a Target, a list of Targets or a dict from a Label-typed " +
-                  "attribute, got {}. Pass each attribute value as one element, e.g. " +
-                  "[ctx.attr.deps, ctx.attr.exports].").format(where, kind))
-    return targets
-
-def _append_targets(where, targets, values):
-    """Appends a list of Targets, rejecting anything else."""
-    for value in values:
-        if type(value) != _TARGET_TYPE:
-            fail(("{}: expected a Target, got {}. Pass ctx.attr values, not ctx.files " +
-                  "values or plain Labels.").format(where, type(value)))
-        targets.append(value)
-
-def _append_dict_half(where, targets, value):
-    """Appends the Targets on one side of a dict-shaped attribute value.
-
-    The string side of a keyed dict is skipped: it is the key of a
-    string_keyed_label_dict or a label_list_dict, or the value of a
-    label_keyed_string_dict, and none of those name a dependency.
-    """
-    kind = type(value)
-    if kind == _TARGET_TYPE:
-        targets.append(value)
-    elif kind == _LIST_TYPE or kind == _TUPLE_TYPE:
-        _append_targets(where, targets, value)
-    elif kind != _STRING_TYPE:
-        fail(("{}: expected a Target, a list of Targets or a string in a dict-shaped " +
-              "attribute value, got {}.").format(where, kind))
-
-def _data_entry(ctx, dep):
-    """Synthesizes the entry for a dependency that provides no runfiles groups.
-
-    It is a per-target group named by the dependency's Label, so two targets that
-    share a data dependency synthesize the same group and
-    runfiles_groups.resolve() folds them back into one. Naming it with the Label
-    rather than a string derived from it means this costs nothing: Bazel already
-    interns the Label and the dependency already holds it.
-
-    Args:
-        ctx: The rule context.
-        dep: A Target without RunfilesGroupInfo.
-
-    Returns:
-        A group entry covering the dependency's files and default runfiles.
-    """
-
-    # Read DefaultInfo once: on a target that does not return it explicitly every
-    # access constructs a fresh delegating instance, and every `.files` read a
-    # fresh depset wrapper.
-    default_info = dep[DefaultInfo]
-    runfiles = default_info.default_runfiles
-
-    # default_runfiles is declared nullable on the Starlark API surface, and
-    # RunfilesProvider's factories accept null unchecked. No path through
-    # dep[DefaultInfo] appears to produce None today, so this branch costs one
-    # comparison and never runs -- keep it rather than depend on that.
-    if runfiles == None:
-        runfiles = ctx.runfiles()
-    files = default_info.files
-
-    # Truth-testing a depset is O(1). Skipping the wrapper for a dependency that
-    # contributes no files avoids a runfiles object and a nested set per
-    # (target, data dep) edge, retained for the life of the provider.
-    #
-    # The dependency's depset is laundered through depset(transitive = ) before it
-    # reaches ctx.runfiles(transitive_files = ), which accepts only default and
-    # postorder. Starlark cannot read an order back to check for a bad one, but it
-    # can neutralize it: the rewrap yields a default-ordered depset, and hands back
-    # the original object when it already was one. Without it, a dependency
-    # publishing DefaultInfo(files = depset(..., order = "topological")) could not
-    # appear in `data` at all.
-    #
-    # This synthesized entry keeps the runfiles form: deciding to hand over `files`
-    # alone would mean inspecting a foreign runfiles object to see whether it holds
-    # anything besides files, and reading its empty_filenames is O(all files) for a
-    # dependency that carries a real empty-files supplier.
-    if files:
-        runfiles = ctx.runfiles(transitive_files = depset(transitive = [files])).merge(runfiles)
-    return _entry(name = dep.label, content = runfiles)
-
-def _collect(ctx, *, deps, data, own = [], transitive = []):
-    """Returns the entry depset for a target: its own entries plus its dependencies'.
-
-    O(number of direct dependencies); never flattens anything.
-
-    `deps` and `data` are each an iterable of *attribute values*, not one
-    attribute, so a rule with several Label-typed attributes needs one call:
-
-        runfiles_groups.collect(
-            ctx,
-            deps = [ctx.attr.deps, ctx.attr.exports],
-            data = [ctx.attr.data, ctx.attr.tools],
-        )
-
-    Every Label-typed attribute kind is accepted and every Target in one
-    contributes: attr.label, attr.label_list, attr.label_keyed_string_dict,
-    attr.string_keyed_label_dict and attr.label_list_dict. The string side of a
-    keyed dict is skipped. A rule with a single label_list can still pass
-    `deps = ctx.attr.deps` unwrapped: a list of Targets is itself an iterable of
-    legal elements.
-
-    `deps` and `data` are handled differently, which is the whole reason there are
-    two of them:
-
-        deps    propagates RunfilesGroupInfo, and contributes nothing at all for a
-                dependency that has none. These are the ruleset's own targets, so
-                they are expected to speak the protocol: synthesizing a group for
-                one that does not would hide the bug, and it would claim that
-                dependency's whole DefaultInfo -- for a *_library, its entire
-                closure's runfiles, which overlaps the groups of everything else
-                that closure reaches.
-        data    falls back to a synthesized per-target entry
-                (runfiles_groups.data_entry()) for a dependency without
-                RunfilesGroupInfo. These are arbitrary
-                user-supplied targets, usually leaves, and not participating is
-                the norm rather than a bug -- nothing else in the build is going
-                to group them.
-
-    So a dependency that both lacks RunfilesGroupInfo *and* contributes to this
-    target's default_runfiles must reach `data`, not `deps`, or a packager will
-    place no group holding its files.
-
-    `deps` and `data` are mandatory because handling `data` is the protocol's
-    classic footgun: pass `data = []` explicitly if your rule has none.
-
-    Pass this target's own entries as `own` rather than wrapping the result in
-    another depset. A depset's depth grows by one per nesting level and Bazel
-    rejects depsets deeper than --nested_set_depth_limit (3500 by default), so a
-    long dependency chain has half as much headroom if every level adds two
-    levels instead of one. `transitive` is there for the same reason: entry
-    depsets from somewhere other than an attribute -- a toolchain, an aspect's
-    accumulator -- belong in the same single depset, not in a wrapper around it.
-
-    Args:
-        ctx: The rule context.
-        deps: Iterable of attribute values whose targets' groups this target
-            propagates -- typically the ruleset's own *_library targets, which
-            provide RunfilesGroupInfo.
-        data: Iterable of attribute values holding arbitrary targets. Those
-            without RunfilesGroupInfo get one synthesized per-target entry each,
-            named by their Label.
-        own: Entries this target owns, built with runfiles_groups.entry().
-        transitive: Entry depsets to merge in, e.g. from a toolchain.
-
-    Returns:
-        A depset of entries.
-    """
-    direct = list(own)
-
-    # Checked here because the single-depset shortcut at the bottom returns an
-    # element of this list unchanged, so it is the one path that never reaches
-    # depset(transitive = ), which would have rejected a non-depset itself.
-    for entries in transitive:
-        if type(entries) != _DEPSET_TYPE:
-            fail("runfiles_groups.collect: transitive must hold entry depsets, got {}".format(type(entries)))
-    transitive = list(transitive)
-
-    for dep in _attr_targets("runfiles_groups.collect: deps", deps):
-        if RunfilesGroupInfo in dep:
-            # By reference: depset(transitive = [x]) with nothing new returns
-            # x's own depset object, so propagation allocates nothing.
-            transitive.append(dep[RunfilesGroupInfo].entries)
-
-    for dep in _attr_targets("runfiles_groups.collect: data", data):
-        if RunfilesGroupInfo in dep:
-            transitive.append(dep[RunfilesGroupInfo].entries)
-        else:
-            direct.append(_data_entry(ctx, dep))
-
-    # executable_group lives on RunfilesGroupInfo, not on entries, and is never
-    # propagated -- so nothing has to be stripped from a dependency's groups.
-    if not direct:
-        if not transitive:
-            return _NO_ENTRIES
-        if len(transitive) == 1:
-            return transitive[0]
-    return depset(direct, transitive = transitive)
-
-# ---------------------------------------------------------------- consumer side
-
-def _order_key(entry):
-    # A module-level def, so sorted(key = _order_key) allocates no function value
-    # and no closure cell per call site. The name is wrapped in its form
-    # discriminator so a Label and a string are never compared against each other.
-    name = entry.name
-    if type(name) == _LABEL_TYPE:
-        return (entry.rank, 0, name)
-    return (entry.rank, 1, name)
-
-def _make_resolved(by_name, executable_group):
-    return struct(
-        groups = sorted(by_name.values(), key = _order_key),
-        by_name = by_name,
-        executable_group = executable_group,
-    )
-
-def _check_entry(where, entry):
-    for field in _ENTRY_FIELDS:
-        if not hasattr(entry, field):
-            fail(("{}: entry is missing field '{}'; build entries with " +
-                  "runfiles_groups.entry() or runfiles_groups.derive()").format(where, field))
-    _check_name(where, entry.name)
-
-    # Checked here as well as in runfiles_groups.entry(), because an entry can reach
-    # a consumer without having been built by runfiles_groups: a depset's element
-    # type is only weakly checked, so a foreign hand-rolled entry type-checks and
-    # would then fail inside
-    # a union or a packager's read. Inlined rather than routed through
-    # _check_content so that the happy path -- once per entry per resolve -- formats
-    # nothing.
-    content = entry.content
-    if type(content) != _DEPSET_TYPE and not hasattr(content, "merge_all"):
-        fail("{}: entry '{}' content must be a runfiles object or a depset of File, got {}".format(
-            where,
-            _name_str(entry.name),
-            type(content),
-        ))
-    if entry.kind not in KINDS:
-        fail("{}: entry '{}' has kind {}, expected one of {}".format(where, _name_str(entry.name), repr(entry.kind), KINDS))
-
-def _resolved(groups, *, executable_group = None):
-    """Builds a resolved group set from a list of entries, ordered by (rank, name).
-
-    This is what a RunfilesGroupTransformInfo transform returns.
-
-    Args:
-        groups: List of entries. Names must be unique.
-        executable_group: The name (Label or string) of the group carrying the
-            executable, or None. It must name one of `groups`.
-
-    Returns:
-        struct(groups, by_name, executable_group).
-    """
-    by_name = {}
-    for entry in groups:
-        _check_entry("runfiles_groups.resolved", entry)
-        if entry.name in by_name:
-            fail("runfiles_groups.resolved: duplicate group name '{}'".format(_name_str(entry.name)))
-        by_name[entry.name] = entry
-    if executable_group != None:
-        _check_name("runfiles_groups.resolved: executable_group", executable_group)
-        if executable_group not in by_name:
-            fail("runfiles_groups.resolved: executable_group {} names no group. Present groups: {}".format(
-                _described_name(executable_group),
-                _sorted_name_strs(by_name),
-            ))
-    return _make_resolved(by_name, executable_group)
-
-def _fold(ctx, entries):
-    """Folds a flat list of entries into a dict of group name -> entry.
-
-    Duplicate names are legal and expected: two targets can each synthesize an
-    entry for the same shared data dependency, and runfiles objects have no value
-    equality, so a depset cannot collapse them. They are unioned rather than
-    resolved last-wins, which would drop one side's files.
-
-    Combination is order-independent, so the result never depends on the depset's
-    traversal order:
-        content        one runfiles_groups.union() over all parts -- which stays in
-                       the depset form unless the parts mix forms, and never folds
-                       pairwise:
-                       a fold would deepen the artifact DAG once per duplicate and
-                       can hit the nested set depth limit.
-        rank           min
-        do_not_merge   or
-        weight         max, not sum -- duplicates are the same bytes reached
-                       twice, and merging unions rather than concatenates, so
-                       summing would inflate the cost model that
-                       runfiles_groups.limit() consumes.
-        kind           the non-empty one, lexicographic min if both are set
-        merge_affinity likewise
-
-    A group with no duplicates is handed through untouched, in whichever content
-    form its producer chose. Nothing is materialized on its behalf.
-    """
-    first = {}
-    parts = {}
-    for entry in entries:
-        _check_entry("runfiles_groups.resolve", entry)
-        name = entry.name
-        previous = first.get(name)
-        if previous == None:
-            first[name] = entry
-            continue
-        if previous == entry:
-            # Value equality: identical entries collapse for free.
-            continue
-        acc = parts.get(name)
-        if acc == None:
-            acc = [previous.content]
-            parts[name] = acc
-        acc.append(entry.content)
-        if previous.weight == None:
-            weight = entry.weight
-        elif entry.weight == None:
-            weight = previous.weight
-        else:
-            weight = max(previous.weight, entry.weight)
-        first[name] = _derive(
-            previous,
-            kind = _combine_str(previous.kind, entry.kind),
-            rank = min(previous.rank, entry.rank),
-            do_not_merge = previous.do_not_merge or entry.do_not_merge,
-            weight = weight,
-            merge_affinity = _combine_str(previous.merge_affinity, entry.merge_affinity),
-        )
-    for name, acc in parts.items():
-        first[name] = _derive(first[name], content = _union(ctx, acc))
-    return first
-
-def _combine_str(a, b):
-    if not a:
-        return b
-    if not b:
-        return a
-    return min(a, b)
-
-def _unpack(source):
-    """Returns (entries depset or None, executable_group) for a resolve source."""
-    kind = type(source)
-    if kind == _DEPSET_TYPE:
-        return (source, None)
-    if kind == _TARGET_TYPE:
-        if RunfilesGroupInfo in source:
-            info = source[RunfilesGroupInfo]
-            return (info.entries, info.executable_group)
-        return (None, None)
-    if kind == "struct" and hasattr(source, "entries"):
-        return (source.entries, getattr(source, "executable_group", None))
-    fail("runfiles_groups.resolve: expected a Target, a RunfilesGroupInfo or a depset of entries, got ", kind)
-
-def _check_ctx(where, ctx):
-    # A cheap guard with an expensive payoff: `where(source, aspect_hints = h)` --
-    # the pre-ctx spelling of this call -- otherwise fails with "missing 1 required
-    # positional argument: source", which points a migrating caller at the wrong
-    # parameter. Nothing but a ctx carries a `runfiles` member.
-    if not hasattr(ctx, "runfiles"):
-        fail("{}: first argument must be the rule or aspect ctx, got {}".format(where, type(ctx)))
-
-def _resolve(ctx, source, *, aspect_hints):
-    """Flattens, folds, transforms and orders a target's runfiles groups.
-
-    This is the only place in the protocol that flattens a depset. Call it once per
-    *consuming* target, never from a library rule.
-
-    `aspect_hints` is a mandatory keyword: with a default, the correct call and the
-    call that silently ignores every user hint look identical. Pass
-    `ctx.rule.attr.aspect_hints` from an aspect, or `[]`.
-
-    Args:
-        ctx: The rule or aspect context. Used only if folding duplicate group names
-            has to union a files-only group's depset with another group's runfiles
-            object, which needs ctx.runfiles() -- the only lift Bazel offers.
-        source: A Target, a RunfilesGroupInfo, or a depset of entries.
-        aspect_hints: The target's aspect_hints (list of Targets), or [].
-
-    Returns:
-        struct(groups, by_name, executable_group), or None when the source carries
-        no groups at all -- package DefaultInfo.default_runfiles as a single group
-        in that case.
-    """
-    _check_ctx("runfiles_groups.resolve", ctx)
-    entries, executable_group = _unpack(source)
-    if entries == None:
-        return None
-    by_name = _fold(ctx, entries.to_list())
-    if not by_name:
-        return None
-    if executable_group != None and executable_group not in by_name:
-        fail("runfiles_groups.resolve: executable_group {} names no group in the entry depset. Present groups: {}".format(
-            _described_name(executable_group),
-            _sorted_name_strs(by_name),
-        ))
-
-    resolved = _make_resolved(by_name, executable_group)
-
-    for hint in aspect_hints:
-        if RunfilesGroupTransformInfo in hint:
-            result = hint[RunfilesGroupTransformInfo].transform(resolved)
-            if type(result) != _STRUCT_TYPE or not hasattr(result, "groups"):
-                fail("aspect_hint {}: transform must return runfiles_groups.resolved(...), got {}".format(
-                    hint.label,
-                    type(result),
-                ))
-
-            # Re-validated here so that a transform which drops the executable
-            # group or emits a hand-rolled entry fails naming the hint, rather
-            # than three rules downstream.
-            resolved = _resolved(
-                result.groups,
-                executable_group = getattr(result, "executable_group", None),
-            )
-    return resolved
-
-def _group_names(resolved):
-    """Returns the group names of a resolved group set, as sorted strings.
-
-    Args:
-        resolved: A resolved group set, from runfiles_groups.resolve().
-
-    Returns:
-        A sorted list of canonical name strings. Use resolved.by_name if you need
-        the names in their original Label-or-string form.
-    """
-    return _sorted_name_strs(resolved.by_name)
-
-def _index_by_name_str(resolved):
-    """Indexes a resolved group set by canonical name string.
-
-    Useful for a packager whose user-facing configuration names groups as strings:
-    a user writes "@@//src:lib_a" (the canonical form of a per-target group's Label)
-    or "my_rules#interpreter", and this resolves either against the actual entries.
-
-    Args:
-        resolved: A resolved group set, from runfiles_groups.resolve().
-
-    Returns:
-        dict[str, entry].
-    """
-    by_str = {}
-    for name, entry in resolved.by_name.items():
-        as_str = _name_str(name)
-
-        # A Label and the string form of that same label are two distinct groups
-        # that render identically. Returning a dict quietly missing one of them is
-        # how a packager loses a group's files.
-        if as_str in by_str:
-            fail(("runfiles_groups.index_by_name_str: groups {} and {} both render as '{}'. Name one of " +
-                  "them differently -- a string that spells out a Label's canonical form is a " +
-                  "different group from the Label itself.").format(
-                _described_name(by_str[as_str].name),
-                _described_name(name),
-                as_str,
-            ))
-        by_str[as_str] = entry
-    return by_str
-
-# -------------------------------------------------------------- merge to limit
-
-def _effective_weight(entry, default_weight):
-    return entry.weight if entry.weight != None else default_weight
-
-def _bucket_add(buckets, key, name):
-    bucket = buckets.get(key)
-    if bucket == None:
-        buckets[key] = [name]
-    else:
-        bucket.append(name)
-
-def _bucket_remove(buckets, key, name):
-    bucket = buckets.get(key)
-    if bucket != None and name in bucket:
-        bucket.remove(name)
-
-def _affinity_key(entry):
-    return (entry.rank, entry.merge_affinity)
-
-def _cheapest_pair(buckets, by_name, sort_keys, default_weight):
-    """Returns the cheapest mergeable pair as (lighter, heavier), or None.
-
-    Cost is the combined effective weight of the two lightest groups in a bucket.
-    Ties break deterministically on (cost, rank, lighter, heavier).
-
-    The two lightest are found with a linear two-minimum scan rather than by
-    sorting: this runs once per merge step, and sorting allocated a decorator, a
-    key tuple and a Starlark frame per element per bucket per step.
-
-    Names are compared through `sort_keys`, which holds one form-discriminated
-    token per group, built once by the caller. Comparing the names directly would
-    fail as soon as a per-target (Label) group and a named (string) group land in
-    the same bucket.
-    """
-    best = None
-    for _key, names in buckets.items():
-        if len(names) < 2:
-            continue
-        w1 = None
-        n1 = None
-        k1 = None
-        w2 = None
-        n2 = None
-        k2 = None
-        for name in names:
-            entry = by_name.get(name)
-            if entry == None:
-                continue  # merged away in an earlier step
-            weight = _effective_weight(entry, default_weight)
-            key = sort_keys[name]
-            if n1 == None or weight < w1 or (weight == w1 and key < k1):
-                w2 = w1
-                n2 = n1
-                k2 = k1
-                w1 = weight
-                n1 = name
-                k1 = key
-            elif n2 == None or weight < w2 or (weight == w2 and key < k2):
-                w2 = weight
-                n2 = name
-                k2 = key
-        if n2 == None:
-            continue
-        candidate = (w1 + w2, by_name[n1].rank, k1, k2)
-        if best == None or candidate < best[0]:
-            best = (candidate, n1, n2)
-    if best == None:
-        return None
-    return (best[1], best[2])
-
-def _limit(ctx, resolved, *, max_groups, default_weight = 0, merged_group_name = None):
-    """Merges groups until at most max_groups remain.
-
-    Merges are picked in this order: same rank only; then prefer pairs that share
-    a merge_affinity ("" is the shared "no affinity" bucket); then the two
-    lightest by weight.
-
-    Args:
-        ctx: The rule or aspect context. Used only where a merged pair mixes a
-            files-only group's depset with another group's runfiles object, which
-            needs ctx.runfiles().
-        resolved: A resolved group set, from runfiles_groups.resolve().
-        max_groups: Maximum number of groups to leave.
-        default_weight: Weight to assume for entries whose weight is None.
-        merged_group_name: Optional function
-            (lighter_name, lighter_weight, heavier_name, heavier_weight) -> name
-            naming the merged group. The names it receives are in their original
-            Label-or-string form; use runfiles_groups.name_str() to render them. It
-            may return either form, though a merged group is rarely still one target's, so a
-            string is the usual answer. If None, the heavier group's name is kept.
-
-    Returns:
-        struct(groups, by_name, executable_group, group_count). The caller MUST
-        check group_count: do_not_merge and rank constraints can make max_groups
-        unreachable.
-    """
-    _check_ctx("runfiles_groups.limit", ctx)
-    if type(default_weight) != _INT_TYPE or default_weight < 0:
-        fail("runfiles_groups.limit: default_weight must be an int >= 0, got ", repr(default_weight))
-    if len(resolved.by_name) <= max_groups:
-        return struct(
-            groups = resolved.groups,
-            by_name = resolved.by_name,
-            executable_group = resolved.executable_group,
-            group_count = len(resolved.by_name),
-        )
-
-    by_name = dict(resolved.by_name)
-    executable_group = resolved.executable_group
-
-    # Canonical forms of the surviving names, so that a merged_group_name callback
-    # returning the string spelling of a Label-named group is caught. The raw
-    # `out_name in by_name` test below cannot see that: the two are different keys
-    # that render identically, and overwriting would drop a group's runfiles.
-    name_strs = {}
-    if merged_group_name != None:
-        for name in by_name:
-            name_strs[_name_str(name)] = name
-
-    # Contents of a merged group are accumulated and unioned once at the end. A
-    # pairwise fold would retain a two-slot array per step and deepen the artifact
-    # DAG once per merge; accumulating also lets a run of files-only groups merge
-    # without ever building a runfiles object.
-    parts = {}
-
-    # Buckets are built once and patched incrementally: a merge only touches the
-    # two groups involved and their replacement. sort_keys holds one comparison
-    # token per group so tie-breaking never compares a Label against a string.
-    by_rank_affinity = {}
-    by_rank = {}
-    sort_keys = {}
-    for name, entry in by_name.items():
-        if entry.do_not_merge:
-            # Never bucketed, so never compared: no sort key needed. It cannot
-            # become bucketed later either -- the only name added below is
-            # out_name, and a collision with an existing group already fails.
-            continue
-        sort_keys[name] = _sort_key(name)
-        _bucket_add(by_rank_affinity, _affinity_key(entry), name)
-        _bucket_add(by_rank, entry.rank, name)
-
-    for _ in range(len(by_name)):
-        if len(by_name) <= max_groups:
-            break
-
-        # Tier 1: prefer pairs sharing a (rank, merge_affinity).
-        # Tier 2: fall back to the cheapest same-rank pair across affinities.
-        pair = _cheapest_pair(by_rank_affinity, by_name, sort_keys, default_weight)
-        if pair == None:
-            pair = _cheapest_pair(by_rank, by_name, sort_keys, default_weight)
-        if pair == None:
-            break
-
-        lighter, heavier = pair
-        light = by_name.pop(lighter)
-        heavy = by_name.pop(heavier)
-        _bucket_remove(by_rank_affinity, _affinity_key(light), lighter)
-        _bucket_remove(by_rank_affinity, _affinity_key(heavy), heavier)
-        _bucket_remove(by_rank, light.rank, lighter)
-        _bucket_remove(by_rank, heavy.rank, heavier)
-
-        light_weight = _effective_weight(light, default_weight)
-        heavy_weight = _effective_weight(heavy, default_weight)
-        if merged_group_name != None:
-            out_name = merged_group_name(lighter, light_weight, heavier, heavy_weight)
-            if type(out_name) != _LABEL_TYPE and (type(out_name) != _STRING_TYPE or not out_name):
-                fail(
-                    "runfiles_groups.limit: merged_group_name must return a Label or a non-empty string, got ",
-                    repr(out_name),
-                )
-
-            # Silently overwriting a third, untouched group would drop its
-            # runfiles and violate its do_not_merge. Compared in canonical form so
-            # that a string spelling of a Label-named group is caught too.
-            out_str = _name_str(out_name)
-            existing = name_strs.get(out_str)
-            if existing != None:
-                fail("runfiles_groups.limit: merged_group_name({}, {}) returned {}, which is an existing group ({})".format(
-                    _described_name(lighter),
-                    _described_name(heavier),
-                    _described_name(out_name),
-                    _described_name(existing),
-                ))
-        else:
-            out_name = heavier
-
-        acc = parts.pop(heavier, None)
-        if acc == None:
-            acc = [heavy.content]
-        light_parts = parts.pop(lighter, None)
-        if light_parts == None:
-            acc.append(light.content)
-        else:
-            acc.extend(light_parts)
-        parts[out_name] = acc
-
-        merged = _derive(
-            heavy,
-            name = out_name,
-            do_not_merge = False,
-            weight = light_weight + heavy_weight,
-        )
-        by_name[out_name] = merged
-        if merged_group_name != None:
-            name_strs.pop(_name_str(lighter), None)
-            name_strs.pop(_name_str(heavier), None)
-            name_strs[out_str] = out_name
-        sort_keys[out_name] = _sort_key(out_name)
-        _bucket_add(by_rank_affinity, _affinity_key(merged), out_name)
-        _bucket_add(by_rank, merged.rank, out_name)
-        if executable_group == lighter or executable_group == heavier:
-            executable_group = out_name
-
-    for name, acc in parts.items():
-        by_name[name] = _derive(by_name[name], content = _union(ctx, acc))
-
-    return struct(
-        groups = sorted(by_name.values(), key = _order_key),
-        by_name = by_name,
-        executable_group = executable_group,
-        group_count = len(by_name),
-    )
-
-# ---------------------------------------------------------------- global flag
-
-# Attribute fragment consumers merge into their rule's attrs to read the global
-# RunfilesGroupInfo on/off switch. Paired with is_enabled(ctx): a rule that
-# calls runfiles_groups.is_enabled(ctx) must have merged
-# runfiles_groups.RULE_ATTRS into its attrs.
-#
-# Label("//runfiles_group:enabled") is resolved in this module's repo context,
-# so it points at @rules_runfiles_group//runfiles_group:enabled in every
-# consumer repo — consumers merge in this fragment without naming the flag.
-RULE_ATTRS = {
-    "_runfiles_group_enabled": attr.label(default = Label("//runfiles_group:enabled")),
-}
-
-def _is_enabled(ctx):
-    """Returns whether RunfilesGroupInfo emission is globally enabled.
-
-    Reads the @rules_runfiles_group//runfiles_group:enabled build setting.
-    Requires runfiles_groups.RULE_ATTRS to have been merged into the rule's attrs.
-
-    Args:
-        ctx: The rule context.
-
-    Returns:
-        True if producing rules should emit RunfilesGroupInfo.
-    """
-    return ctx.attr._runfiles_group_enabled[BuildSettingInfo].value
+load("//runfiles_group/private/lib:partial.bzl", "derive")
+load("//runfiles_group/private/lib:resolved.bzl", "resolved_groups")
+load("//runfiles_group/private/providers:runfiles_group_info.bzl", "DEFAULT_METADATA", "KINDS")
 
 runfiles_groups = struct(
-    # producer
-    entry = _entry,
-    derive = _derive,
-    entries = _entries,
-    collect = _collect,
-    data_entry = _data_entry,
-    # consumer
-    resolve = _resolve,
-    resolved = _resolved,
-    files = _files,
-    runfiles = _runfiles,
-    union = _union,
-    name_str = _name_str,
-    group_names = _group_names,
-    index_by_name_str = _index_by_name_str,
-    limit = _limit,
+    # rule side
+    entry = make_entry,
+    merge_from = make_merge_from,
+    node = make_node,
+    make_describer_rule = make_describer_rule,
+    # packager side
+    packager_ops = packager_ops,
+    PACKAGER_INFO_FIELDS = PACKAGER_INFO_FIELDS,
+    ATTR_ASPECTS = ATTR_ASPECTS,
+    aspect_step = aspect_step,
+    finalize = finalize,
+    limit = limit,
+    IDENTITY_OPS = IDENTITY_OPS,
+    # transforms
+    resolved = resolved_groups,
+    derive = derive,
+    # content and naming helpers
+    files = content_files,
+    runfiles = content_runfiles,
+    union = union_contents,
+    name_str = name_str,
+    group_names = group_names,
+    index_by_name_str = index_by_name_str,
     # entry metadata vocabulary
     KINDS = KINDS,
     DEFAULT_METADATA = DEFAULT_METADATA,
-    # Global on/off switch (see //runfiles_group:enabled). RULE_ATTRS and
-    # is_enabled are a pair — see their docs above.
-    RULE_ATTRS = RULE_ATTRS,
-    is_enabled = _is_enabled,
     # Recommended rank anchors (see README "Recommended rank values").
-    RANK_FOUNDATION = _RANK_FOUNDATION,
-    RANK_SHARED_DEPS = _RANK_SHARED_DEPS,
-    RANK_EXECUTABLE = _RANK_EXECUTABLE,
+    RANK_FOUNDATION = RANK_FOUNDATION,
+    RANK_SHARED_DEPS = RANK_SHARED_DEPS,
+    RANK_EXECUTABLE = RANK_EXECUTABLE,
+    # Deprecated global on/off switch (see //runfiles_group:enabled).
+    RULE_ATTRS = RULE_ATTRS,
+    is_enabled = is_enabled,
 )

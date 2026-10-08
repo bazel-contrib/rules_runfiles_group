@@ -8,43 +8,34 @@ is no prefix to agree on, because a Label is already unique.
 """
 
 load("@rules_runfiles_group//runfiles_group:lib.bzl", "runfiles_groups")
-load("@rules_runfiles_group//runfiles_group:providers.bzl", "RunfilesGroupInfo")
 
 # This ruleset stamps its own module-style affinity on every group it emits.
 _AFFINITY = "asset_bundle"
 
+def _describe_asset_bundle_runfiles(target, ctx):
+    return runfiles_groups.node(add = [runfiles_groups.entry(
+        name = ctx.label,
+        content = target[DefaultInfo].default_runfiles,
+        kind = "first_party",
+        rank = runfiles_groups.RANK_SHARED_DEPS,
+        weight = ctx.rule.attr.weight if ctx.rule.attr.weight > 0 else None,
+        merge_affinity = _AFFINITY,
+    )])
+
+asset_bundle_runfiles_group_describer = runfiles_groups.make_describer_rule(describe = _describe_asset_bundle_runfiles)
+
 def _asset_bundle_impl(ctx):
     runfiles = ctx.runfiles(files = ctx.files.srcs)
-    providers = [
+    return [
         DefaultInfo(
             files = depset(ctx.files.srcs),
             runfiles = runfiles,
         ),
     ]
 
-    # Honor the global on/off switch: emit no RunfilesGroupInfo when disabled.
-    if not runfiles_groups.is_enabled(ctx):
-        return providers
-
-    # A leaf: one per-target group of its own, nothing to collect. The group keeps
-    # the runfiles form deliberately, even though its contents are only files:
-    # DefaultInfo retains this object anyway, so handing over a depset instead would
-    # save nothing here -- and it keeps a second content form in circulation, which
-    # is what exercises lib's mixed unions when a packager merges these groups with
-    # a starlark_library's files-only ones.
-    providers.append(RunfilesGroupInfo(entries = runfiles_groups.entries([runfiles_groups.entry(
-        name = ctx.label,
-        content = runfiles,
-        kind = "first_party",
-        rank = runfiles_groups.RANK_SHARED_DEPS,
-        weight = ctx.attr.weight if ctx.attr.weight > 0 else None,
-        merge_affinity = _AFFINITY,
-    )])))
-    return providers
-
 asset_bundle = rule(
     implementation = _asset_bundle_impl,
-    attrs = dict({
+    attrs = {
         "srcs": attr.label_list(
             allow_files = True,
             doc = "Asset files bundled into this group.",
@@ -53,5 +44,7 @@ asset_bundle = rule(
             default = 0,
             doc = "Weight hint for this bundle's runfiles group. If > 0, set as the group entry's weight.",
         ),
-    }, **runfiles_groups.RULE_ATTRS),
+        "_runfiles_group_describer": attr.label(default = Label(":asset_bundle_runfiles_group_describer")),
+        "_runfiles_group_attrs": attr.string_list(default = []),
+    },
 )

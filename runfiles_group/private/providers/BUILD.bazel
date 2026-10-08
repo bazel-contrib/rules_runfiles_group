@@ -1,14 +1,20 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 
 bzl_library(
-    name = "runfiles_group_entry_info",
-    srcs = ["runfiles_group_entry_info.bzl"],
+    name = "runfiles_group_info",
+    srcs = ["runfiles_group_info.bzl"],
     visibility = ["//:__subpackages__"],
 )
 
 bzl_library(
-    name = "runfiles_group_info",
-    srcs = ["runfiles_group_info.bzl"],
+    name = "runfiles_group_partial_info",
+    srcs = ["runfiles_group_partial_info.bzl"],
+    visibility = ["//:__subpackages__"],
+)
+
+bzl_library(
+    name = "runfiles_group_describer_info",
+    srcs = ["runfiles_group_describer_info.bzl"],
     visibility = ["//:__subpackages__"],
 )
 

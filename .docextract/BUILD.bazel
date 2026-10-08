@@ -15,3 +15,9 @@ starlark_doc_extract(
     src = "//runfiles_group:runfiles_group_analysis_test.bzl",
     deps = ["//runfiles_group:runfiles_group_analysis_test"],
 )
+
+starlark_doc_extract(
+    name = "identity_packager",
+    src = "//runfiles_group:identity_packager.bzl",
+    deps = ["//runfiles_group:identity_packager"],
+)

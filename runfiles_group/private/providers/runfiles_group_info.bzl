@@ -1,85 +1,63 @@
-"""Defines provider for grouping runfiles into different subcategories.
+"""Defines RunfilesGroupInfo: runfiles a target adds to a group.
 
-This is essentially a special-purpose version of OutputGroupInfo.
-If present, it can be used instead of DefaultInfo.default_runfiles."""
+A rule's runfiles group describer returns these in `runfiles_groups.node(add = ...)`.
+Each one describes runfiles the target ITSELF adds -- its own sources, the outputs
+of its own actions -- to one named group. Several targets may add to the same
+group; the packager merges them.
 
-_DOC = """\
-Runfiles of a target, split into named groups.
+An instance is short-lived: the packager's aspect hands it to the packager's
+`materialize` operation on the same node and drops it.
 
-Fields:
-
-- `entries`: a depset of group entries, each built with `runfiles_groups.entry()`.
-  Every entry carries its own name, contents and ordering/merge metadata, so a
-  target propagates its dependencies' groups by referencing their depsets rather
-  than by copying them. The per-target cost is therefore independent of how many
-  groups the transitive closure contains.
-
-  A group's name is either a **Label**, meaning a per-target group ("the runfiles
-  this one target contributes"), or a **string**, meaning a named group that
-  several targets contribute to. See `runfiles_groups.entry()`, and
-  `runfiles_groups.name_str()` for rendering either form as a string.
-
-  A group's contents are either a **runfiles object** or, for a group that is only
-  files, a **depset of File**. Consumers read both through
-  `runfiles_groups.files(entry)` and `runfiles_groups.runfiles(ctx, entry)` and must
-  not touch `entry.content` directly, other than to pass it back to
-  `runfiles_groups.union()` or `runfiles_groups.entry()`.
-
-  The depset order MUST be `"default"` (stable): it is the only order that can be
-  merged with every other order, which a producer needs in order to combine entry
-  depsets coming from foreign rulesets. Starlark cannot read a depset's order
-  back, so build the depset with `runfiles_groups.entries()` or
-  `runfiles_groups.collect()`, which do it correctly. Traversal order is never
-  observable: `runfiles_groups.resolve()` sorts by `(rank, name)`.
-
-  Group names MAY repeat across the depset -- two targets can each synthesize an
-  entry for the same shared data dependency. `runfiles_groups.resolve()` folds
-  duplicates by name, unioning their contents.
-
-- `executable_group`: the *name* of the group that should receive the executable,
-  the runfiles symlinks, the repo mapping manifest and the other supporting files
-  of the entrypoint, or None to let the packager decide. Either name form.
-
-  A name rather than a reference to an entry, because a name survives renaming,
-  merging and hint transforms, can be validated (`runfiles_groups.resolve()` fails
-  if it names no surviving group), and is greppable. Entry references would compare
-  by value, so a stale one would silently match nothing -- or two entries at once.
-
-  Only meaningful on the top-level target. `runfiles_groups.collect()` never
-  propagates a dependency's, so nothing has to be stripped.
-
-Unioning the contents of every entry must yield the same runfiles as
-DefaultInfo.default_runfiles. A group whose contents are a depset of File
-contributes exactly those files and no symlinks, root symlinks or empty filenames,
-so a rule whose runfiles carry any of those cannot express them in that form.
-
-This provider functions similarly to OutputGroupInfo, but its presence in the
-output of a rule indicates that it can be used instead of
-DefaultInfo.default_runfiles.
+`runfiles_groups.entry()` is the only supported constructor, so every instance in
+circulation has been validated.
 """
 
-_DEPSET_TYPE = type(depset())
+# Closed set of group kinds. "" means unspecified.
+#
+# `kind` is the protocol's stable, machine-readable selector. A group name is either
+# a Label or a ruleset-internal prefixed string, so packager configuration keyed on a
+# name breaks the moment a target is renamed; `kind` does not.
+#
+# It deliberately has no effect on ordering or merging -- that is what `rank` and
+# `merge_affinity` are for.
+KINDS = [
+    "",
+    "foundation",  # language runtimes, interpreters, standard libraries
+    "third_party",  # dependencies from outside the workspace
+    "first_party",  # the workspace's own code and data
+    "debug",  # debug symbols, source maps
+    "docs",  # documentation, licences, manifests
+]
 
-def _make_runfilesgroupinfo_init(*, entries, executable_group = None):
-    if type(entries) != _DEPSET_TYPE:
-        fail("RunfilesGroupInfo: entries must be a depset of entries built with runfiles_groups.entry(), got ", type(entries))
-    if executable_group != None:
-        if type(executable_group) == "string":
-            if not executable_group:
-                fail("RunfilesGroupInfo: executable_group must not be an empty string")
-        elif type(executable_group) != "Label":
-            fail("RunfilesGroupInfo: executable_group must be a group name (Label or string) or None, got ", type(executable_group))
-    return {"entries": entries, "executable_group": executable_group}
+# The metadata a group has when its producer doesn't provide it;
+# runfiles_groups.entry()'s defaults.
+DEFAULT_METADATA = struct(
+    rank = 0,
+    do_not_merge = False,
+    weight = None,
+    kind = "",
+    merge_affinity = "",
+)
 
-# `entries` is a schema'd field on purpose: Bazel unwraps a depset stored in a
-# schema'd provider field down to its raw nested set, eliding the depset wrapper
-# per instance, and rewraps it on read. Schemaless (dynamic-field) providers do
-# not get that.
-RunfilesGroupInfo, _ = provider(
-    doc = _DOC,
-    init = _make_runfilesgroupinfo_init,
+RunfilesGroupInfo = provider(
+    doc = "Runfiles a target adds to one group: a name, the contents, and ordering/merge metadata.",
     fields = {
-        "entries": "depset of group entries, order = \"default\". Build it with runfiles_groups.entries() or runfiles_groups.collect().",
-        "executable_group": "Label, str or None: name of the group that carries the executable and its supporting files.",
+        "name": """\
+Label or str: the identity of the group this adds to. A Label means a per-target
+group -- "the runfiles this one target contributes" -- and needs no prefix, because
+a Label is globally unique. A string means a named group that several targets may
+contribute to; prefix those with something unique to your ruleset.
+runfiles_groups.name_str() renders either form as a string.
+""",
+        "content": """\
+runfiles or depset of File: the contents of this group. A depset is the shorthand
+for a group that is only files, which uses less memory; a runfiles object is the
+general form that can represent empty files, runfiles symlinks, root symlinks, and files.
+""",
+        "kind": "str: one of KINDS. A stable selector for packagers. \"\" means unspecified.",
+        "rank": "int: partial ordering key. Lower rank = earlier = more cacheable. Default 0.",
+        "do_not_merge": "bool: if True, packagers must not merge this group. Default False.",
+        "weight": "int >= 0 or None: merge priority hint. Lighter groups merge first.",
+        "merge_affinity": "str: merge grouping hint. \"\" means no affinity.",
     },
 )

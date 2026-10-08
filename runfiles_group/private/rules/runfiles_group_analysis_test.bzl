@@ -1,9 +1,8 @@
-"""A test verifying that RunfilesGroupInfo returned by a *_binary target is valid.
+"""A test verifying the runfiles groups a target describes.
 
-Each binary is analyzed in two configurations via a split transition: one with the
-global switch @rules_runfiles_group//runfiles_group:enabled set to True, where the
-groups are checked for completeness, overlap and ordering, and one with it set to
-False, where the binary must emit no RunfilesGroupInfo at all.
+Each target under test is walked with the identity packager
+(runfiles_groups_identity_aspect), its groups are finalized, and their union is
+checked for completeness, overlap and ordering against DefaultInfo.default_runfiles.
 
 Usage:
 
@@ -23,41 +22,9 @@ runfiles_group_analysis_test(
 
 load("@bazel_skylib//lib:sets.bzl", "sets")
 load("//runfiles_group/private:lib.bzl", "runfiles_groups")
-load("//runfiles_group/private/providers:runfiles_group_info.bzl", "RunfilesGroupInfo")
+load("//runfiles_group/private/aspects:identity.bzl", "RunfilesGroupIdentityInfo", "runfiles_groups_identity_aspect")
 
 _INDENT = "    "
-
-# The global RunfilesGroupInfo on/off switch, in canonical form so it is
-# unambiguous inside a transition regardless of the consumer's repo mapping.
-_ENABLED_SETTING = str(Label("//runfiles_group:enabled"))
-
-# Split transition keys: each binary under test is analyzed twice, once with
-# RunfilesGroupInfo emission enabled and once with it disabled.
-_ENABLED_KEY = "runfiles_group_enabled"
-_DISABLED_KEY = "runfiles_group_disabled"
-
-def _rgi_split_transition_impl(_settings, attr):
-    branches = {_ENABLED_KEY: {_ENABLED_SETTING: True}}
-
-    # The disabled branch analyzes every target in the binary's closure a second
-    # time, because the flag lands in BuildOptions.starlarkOptionsMap and is
-    # fingerprinted into the configuration key. That is the price of checking the
-    # one MUST in the producer contract, so it stays on by default, but it is
-    # opt-out for tests over large binaries.
-    if attr.check_disabled:
-        branches[_DISABLED_KEY] = {_ENABLED_SETTING: False}
-    return branches
-
-# Analyze every binary under test in both configurations, so a single test
-# target checks both that the groups are well formed when the providers are
-# requested and that the rule honors the global switch when they are not.
-# Pinning both branches explicitly also makes the test independent of whatever
-# value the flag happens to have on the command line.
-_rgi_split_transition = transition(
-    implementation = _rgi_split_transition_impl,
-    inputs = [],
-    outputs = [_ENABLED_SETTING],
-)
 
 def _indent(text):
     return "\n".join([_INDENT + line for line in text.split("\n")])
@@ -99,14 +66,17 @@ def _test_one(ctx, binary_attr):
     default_info = binary_attr[DefaultInfo]
     default_runfiles = default_info.default_runfiles
 
-    # runfiles_groups.resolve() also validates every entry and that
-    # executable_group names a surviving group, so a malformed provider fails here
-    # with the binary's label rather than inside somebody's packaging rule.
-    resolved = runfiles_groups.resolve(ctx, binary_attr, aspect_hints = [])
-    if resolved == None:
-        return (False, [
-            "doesn't provide RunfilesGroupInfo even though {} is True.".format(_ENABLED_SETTING),
-        ])
+    # Finalizing also validates every group and that executable_group names a
+    # surviving group, so a malformed description fails here with the binary's
+    # label rather than inside somebody's packaging rule.
+    info = binary_attr[RunfilesGroupIdentityInfo]
+    resolved = runfiles_groups.finalize(
+        ctx,
+        info,
+        runfiles_groups.IDENTITY_OPS,
+        aspect_hints = [],
+        executable_group_last = ctx.attr.executable_group_last,
+    )
     if default_runfiles == None:
         return (False, ["doesn't have default_runfiles to compare to."])
 
@@ -116,15 +86,16 @@ def _test_one(ctx, binary_attr):
     # contents are a files-only depset has no symlinks, root symlinks or empty
     # filenames to read, and runfiles_groups.runfiles() is what turns "no symlinks"
     # into the empty depsets the comparison below needs. Doing it inside the loop
-    # would build four runfiles objects per group instead of one.
+    # would build four runfiles objects per group instead of one. The identity
+    # packager's handles are the contents themselves.
     groups = [
-        (runfiles_groups.name_str(entry.name), runfiles_groups.runfiles(ctx, entry))
-        for entry in resolved.groups
+        (runfiles_groups.name_str(group.name), runfiles_groups.runfiles(ctx, group.handle))
+        for group in resolved.groups
     ]
 
     # Note: the following calculations are expensive.
     # This analysis test is only meant to be used to test the correctness of
-    # RunfilesGroupInfo emitting rules. Do not use for all of your *_binary targets in prod.
+    # rules describing runfiles groups. Do not use for all of your *_binary targets in prod.
     for component_name, get_depset in _RUNFILES_COMPONENTS:
         all_default = sets.make(get_depset(default_runfiles).to_list())
         all_grouped = sets.make()
@@ -158,12 +129,12 @@ def _test_one(ctx, binary_attr):
             extra_in_groups = sets.difference(all_grouped, all_default)
             if sets.length(missing_from_groups) > 0:
                 issues.append(
-                    "{} in default_runfiles missing from RunfilesGroupInfo:\n".format(component_name) +
+                    "{} in default_runfiles missing from every runfiles group:\n".format(component_name) +
                     "\n".join([_INDENT + str(item) for item in sets.to_list(missing_from_groups)]),
                 )
             if sets.length(extra_in_groups) > 0:
                 issues.append(
-                    "{} in RunfilesGroupInfo missing from default_runfiles:\n".format(component_name) +
+                    "{} in runfiles groups missing from default_runfiles:\n".format(component_name) +
                     "\n".join([_INDENT + str(item) for item in sets.to_list(extra_in_groups)]),
                 )
 
@@ -182,11 +153,14 @@ def _test_one(ctx, binary_attr):
     # Apply the optional group limit and check the resulting names and count.
     if ctx.attr.max_groups >= 0:
         join_fn = _make_join_group_names(ctx.attr.group_name_prefix) if ctx.attr.group_name_prefix else _join_group_names
-        resolved = runfiles_groups.limit(
+        resolved = runfiles_groups.finalize(
             ctx,
-            resolved,
+            info,
+            runfiles_groups.IDENTITY_OPS,
+            aspect_hints = [],
             max_groups = ctx.attr.max_groups,
             merged_group_name = join_fn,
+            executable_group_last = ctx.attr.executable_group_last,
         )
         if ctx.attr.expected_group_count >= 0:
             if resolved.group_count != ctx.attr.expected_group_count:
@@ -208,7 +182,7 @@ def _test_one(ctx, binary_attr):
 
     # Expectations are written as strings in BUILD files, so both name forms are
     # compared in their canonical string form.
-    actual_names = [runfiles_groups.name_str(entry.name) for entry in resolved.groups]
+    actual_names = [runfiles_groups.name_str(group.name) for group in resolved.groups]
     if ctx.attr.expected_group_names:
         if actual_names != ctx.attr.expected_group_names:
             success = False
@@ -229,46 +203,24 @@ def _test_one(ctx, binary_attr):
 
     return (success, issues)
 
-def _test_one_disabled(binary_attr):
-    """Checks that a binary emits no RunfilesGroupInfo when the switch is off."""
-    if RunfilesGroupInfo not in binary_attr:
-        return (True, [])
-    return (False, [
-        ("still provides RunfilesGroupInfo even though {} is False.\n" +
-         "Gate emission on runfiles_groups.is_enabled(ctx) (and merge " +
-         "runfiles_groups.RULE_ATTRS into the rule's attrs).").format(_ENABLED_SETTING),
-    ])
-
 def _runfiles_group_analysis_test_impl(ctx):
-    # The binaries attribute uses a split transition, so each entry appears once
-    # per branch: with RunfilesGroupInfo emission enabled and with it disabled.
-    enabled_binaries = ctx.split_attr.binaries.get(_ENABLED_KEY, [])
-    disabled_binaries = ctx.split_attr.binaries.get(_DISABLED_KEY, [])
-
-    if len(enabled_binaries) == 0:
+    if len(ctx.attr.binaries) == 0:
         return [AnalysisTestResultInfo(
             success = False,
             message = "runfiles_group_analysis_test with no binaries.",
         )]
 
-    results = []
-    for binary_attr in enabled_binaries:
-        results.append((binary_attr.label, "enabled", _test_one(ctx, binary_attr)))
-    for binary_attr in disabled_binaries:
-        results.append((binary_attr.label, "disabled", _test_one_disabled(binary_attr)))
-
     success = True
     sections = []
-    for label, config, result in results:
-        if not result[0]:
+    for binary_attr in ctx.attr.binaries:
+        ok, issues = _test_one(ctx, binary_attr)
+        if not ok:
             success = False
-            if len(result[1]) > 0:
+            if len(issues) > 0:
                 sections.append(
-                    "Issues with {} [{} = {}]:\n{}".format(
-                        label,
-                        _ENABLED_SETTING,
-                        "True" if config == "enabled" else "False",
-                        "\n".join([_indent(issue) for issue in result[1]]),
+                    "Issues with {}:\n{}".format(
+                        binary_attr.label,
+                        "\n".join([_indent(issue) for issue in issues]),
                     ),
                 )
 
@@ -280,45 +232,29 @@ def _runfiles_group_analysis_test_impl(ctx):
 runfiles_group_analysis_test = rule(
     implementation = _runfiles_group_analysis_test_impl,
     doc = """\
-Checks that RunfilesGroupInfo is well formed by comparing all runfiles components
-(files, empty_filenames, symlinks, root_symlinks) of DefaultInfo.default_runfiles
-with the union of all runfiles from RunfilesGroupInfo.
+Checks the runfiles groups a target describes by walking it with the identity
+packager and comparing all runfiles components (files, empty_filenames, symlinks,
+root_symlinks) of DefaultInfo.default_runfiles with the union of all groups.
 
-Resolving the provider also validates every group entry and that executable_group,
-if set, names a surviving group.
+Finalizing also validates every group and that executable_group, if set, names a
+surviving group.
 
 Additionally, it can warn about entries appearing in multiple groups (overlapping),
 verify the expected ordered group names, verify which group carries the executable,
-and optionally apply merge-to-limit before ordering.
-
-Every binary is analyzed in two configurations via a split transition, so one test
-target also verifies that the rule honors the global on/off switch
-(@rules_runfiles_group//runfiles_group:enabled):
-
-  * enabled: all of the checks above run against the emitted providers.
-  * disabled: the binary must provide no RunfilesGroupInfo at all. Set
-    check_disabled = False to skip this branch, which avoids analyzing the
-    binary's whole closure a second time.
-
-Because both branches are pinned by the transition, the test is independent of the
-value the flag has on the command line.
+and optionally merge down to a group limit before ordering.
 """,
     attrs = {
         "binaries": attr.label_list(
-            cfg = _rgi_split_transition,
+            aspects = [runfiles_groups_identity_aspect],
             mandatory = True,
             doc = "List of *_binary targets to test.",
         ),
         "check_disabled": attr.bool(
             default = True,
             doc = """\
-Also analyze every binary with @rules_runfiles_group//runfiles_group:enabled set
-to False and verify it emits no RunfilesGroupInfo.
-
-This is the only automated check of the producer contract's one MUST, so it is on
-by default. It does cost a second configuration for the binary and its entire
-transitive closure, so set it to False on tests over large binaries and keep one
-small target that checks it. Must not be a select().
+Deprecated and ignored. This used to analyze every binary a second time with the
+global @rules_runfiles_group//runfiles_group:enabled switch off, which nothing
+reads any more.
 """,
         ),
         "expected_group_names": attr.string_list(
@@ -332,14 +268,18 @@ named by a Label is written as its canonical label string, e.g. "@@//src:lib_a".
         ),
         "expected_executable_group": attr.string(
             doc = """\
-If set, the test verifies that RunfilesGroupInfo.executable_group (after optional
+If set, the test verifies that the finalized executable_group (after optional
 merging) is exactly this group name, in canonical string form
 (runfiles_groups.name_str) -- so a group named by a Label is written as its
 canonical label string. Applies to all binaries in the test.
 """,
         ),
+        "executable_group_last": attr.bool(
+            default = True,
+            doc = "Passed to runfiles_groups.finalize(): whether the executable group comes last.",
+        ),
         "max_groups": attr.int(
-            doc = "If >= 0, apply runfiles_groups.limit with this limit before ordering. -1 means no limit.",
+            doc = "If >= 0, finalize with max_groups set to this limit. -1 means no limit.",
             default = -1,
         ),
         "expected_group_count": attr.int(

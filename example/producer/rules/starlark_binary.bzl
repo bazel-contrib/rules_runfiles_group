@@ -2,7 +2,6 @@
 
 load("@hermetic_launcher//launcher:lib.bzl", "launcher")
 load("@rules_runfiles_group//runfiles_group:lib.bzl", "runfiles_groups")
-load("@rules_runfiles_group//runfiles_group:providers.bzl", "RunfilesGroupInfo")
 load("//producer/providers:providers.bzl", "StarlarkInfo")
 
 _GROUP_PREFIX = "starlark_runfiles_group#"
@@ -26,6 +25,102 @@ _GROUP_ENTRYPOINT = _GROUP_PREFIX + "entrypoint"
 
 def _canonical_repo_name(ctx):
     return ctx.label.repo_name or "_main"
+
+_ENTRYPOINT_OUTPUT_GROUP = "_starlark_runfiles_group_entrypoint"
+
+def _describe_starlark_binary_runfiles(target, ctx):
+    grouping = ctx.rule.attr.runfiles_grouping
+    if grouping == "disabled":
+        # Opt out: the packager treats this binary as one synthesized group.
+        return None
+
+    # What this binary ADDS: the launcher, the entrypoint source and the outputs of
+    # its own actions.
+    entrypoint_files = getattr(target[OutputGroupInfo], _ENTRYPOINT_OUTPUT_GROUP)
+
+    # The grouping options exist here to demo what is possible.
+    # A real implementation of "describe" doesn't need to regroup at all.
+    if grouping == "by_target":
+        # One group per transitive target, re-ranked relative to this binary.
+        executable_group = _GROUP_ENTRYPOINT
+        regroup = _rank_by_repo
+    else:
+        # One *named* group per repository, because many targets contribute to
+        # each one. The entrypoint lands in this repository's group, where the
+        # packager merges it with this repository's libraries.
+        executable_group = _GROUP_PREFIX + _canonical_repo_name(ctx)
+        regroup = _bucket_by_repo
+
+    return runfiles_groups.node(
+        add = [runfiles_groups.entry(
+            name = executable_group,
+            content = entrypoint_files,
+            kind = "first_party",
+            rank = runfiles_groups.RANK_EXECUTABLE,
+            merge_affinity = _AFFINITY,
+        )],
+        merge_from = [
+            # Special group: interpreter. The interpreter does not describe its
+            # runfiles groups, so its DefaultInfo is synthesized into one group.
+            runfiles_groups.merge_from(
+                "interpreter",
+                fallback = "synthesize",
+                into = _GROUP_INTERPRETER,
+                kind = "foundation",
+                rank = runfiles_groups.RANK_FOUNDATION,
+                do_not_merge = True,
+                merge_affinity = _AFFINITY,
+            ),
+            # Special group: std. @std puts its whole closure into this one named
+            # group itself (starlark_library's runfiles_group), so it arrives here
+            # as a single piece that every binary shares, and this edge only sets
+            # its metadata.
+            runfiles_groups.merge_from(
+                "_standard_library",
+                into = _GROUP_STD,
+                kind = "foundation",
+                rank = _RANK_STD,
+                merge_affinity = _AFFINITY,
+            ),
+            runfiles_groups.merge_from("deps", regroup = regroup),
+            runfiles_groups.merge_from("data", fallback = "synthesize", regroup = regroup),
+        ],
+        executable_group = executable_group,
+    )
+
+starlark_binary_runfiles_group_describer = runfiles_groups.make_describer_rule(describe = _describe_starlark_binary_runfiles)
+
+def _entry_repo(name):
+    """Canonical repository name a group belongs to, or "" for the main repository."""
+    if type(name) == "Label":
+        return name.repo_name
+    return ""
+
+# Regroup functions run once per partial merged in from deps and data, so they are
+# module-level defs and touch only metadata: the packager's handles pass through.
+
+def _rank_by_repo(partial, owner):
+    """by_target: re-ranks a group relative to this binary.
+
+    First-party groups sit just below the executable, third-party groups anchor at
+    the shared-deps rank.
+    """
+    if _entry_repo(partial.name) == owner.repo_name:
+        return {"rank": runfiles_groups.RANK_EXECUTABLE - 1}
+    return {"rank": runfiles_groups.RANK_SHARED_DEPS}
+
+def _bucket_by_repo(partial, owner):
+    """by_repo: rename every group to its repository's group."""
+    repo = _entry_repo(partial.name)
+    name = _GROUP_PREFIX + (repo or "_main")
+    if repo == owner.repo_name:
+        return {
+            "name": name,
+            "kind": "first_party",
+            "rank": runfiles_groups.RANK_EXECUTABLE,
+            "merge_affinity": _AFFINITY,
+        }
+    return {"name": name, "rank": runfiles_groups.RANK_SHARED_DEPS}
 
 def _starlark_binary_impl(ctx):
     interpreter_info = ctx.attr.interpreter[DefaultInfo]
@@ -121,25 +216,10 @@ def _starlark_binary_impl(ctx):
     )
 
     # Runfiles: interpreter + entrypoint + loadmap + stdlib + data + all deps.
-    #
-    # The entrypoint bundle is only files, so the "entrypoint" group below carries
-    # this depset itself and default_runfiles is built from the same depset: the two
-    # cannot drift apart, and no runfiles object is retained on the group's behalf.
-    # The executable is already part of default_runfiles for an executable Starlark
-    # rule, so naming it here changes nothing about the contents.
     entrypoint_files = depset([output, entrypoint, loadmap, properties])
     entrypoint_runfiles = ctx.runfiles(transitive_files = entrypoint_files)
-
-    # The interpreter group's value and the interpreter's contribution to
-    # default_runfiles must be the SAME object, or the group can end up holding
-    # files the binary's own runfiles never got. Do not assume a dependency's
-    # executable is already inside its default_runfiles: Bazel merges it in for
-    # Starlark rules, but a native one (a single-output genrule, say) publishes an
-    # empty default_runfiles next to a perfectly good files_to_run.executable.
-    interpreter_runfiles = ctx.runfiles(files = [interpreter_exe]).merge(interpreter_info.default_runfiles)
+    interpreter_runfiles = ctx.runfiles(transitive_files = interpreter_info.files).merge(interpreter_info.default_runfiles)
     stdlib_info = stdlib[DefaultInfo]
-
-    # One merge_all rather than a fold: see the comment in starlark_library.bzl.
     to_merge = [
         interpreter_runfiles,
         stdlib_info.default_runfiles,
@@ -150,155 +230,13 @@ def _starlark_binary_impl(ctx):
     to_merge.extend([dep[DefaultInfo].default_runfiles for dep in ctx.attr.data])
     runfiles = entrypoint_runfiles.merge_all(to_merge)
 
-    providers = [
+    return [
         DefaultInfo(
             executable = output,
             runfiles = runfiles,
         ),
+        OutputGroupInfo(**{_ENTRYPOINT_OUTPUT_GROUP: entrypoint_files}),
     ]
-
-    # Honor the global on/off switch: emit no RunfilesGroupInfo when disabled.
-    if not runfiles_groups.is_enabled(ctx):
-        return providers
-
-    if ctx.attr.runfiles_grouping != "disabled":
-        # The canonical repository name, because that is what a group's Label
-        # reports. ctx.attr.repository is this ruleset's own friendly alias and
-        # only exists for the Starlark load path.
-        own_repo = ctx.label.repo_name
-
-        # Both grouping modes re-shape the collected groups, so this binary is a
-        # "materializing" target: it flattens the dependencies' entry depset once.
-        # A *_library must never do this -- it only ever calls
-        # runfiles_groups.collect().
-        collected = runfiles_groups.resolve(
-            ctx,
-            runfiles_groups.collect(ctx, deps = [ctx.attr.deps], data = [ctx.attr.data]),
-            aspect_hints = [],
-        )
-
-        entries = [
-            # Special group: interpreter. Keeps the runfiles form because it merges
-            # a dependency's default_runfiles, which may carry symlinks.
-            runfiles_groups.entry(
-                name = _GROUP_INTERPRETER,
-                content = interpreter_runfiles,
-                kind = "foundation",
-                rank = runfiles_groups.RANK_FOUNDATION,
-                do_not_merge = True,
-                merge_affinity = _AFFINITY,
-            ),
-            # Special group: std. Likewise -- these contents came from another rule.
-            runfiles_groups.entry(
-                name = _GROUP_STD,
-                content = stdlib_info.default_runfiles,
-                kind = "foundation",
-                rank = _RANK_STD,
-                merge_affinity = _AFFINITY,
-            ),
-        ]
-
-        if ctx.attr.runfiles_grouping == "by_target":
-            # One group per transitive target, re-ranked relative to this binary.
-            # runfiles_groups.derive carries weight, merge_affinity and kind
-            # through, so re-ranking cannot silently reset them -- and it carries the
-            # contents through in whichever form the producer chose, so re-ranking a
-            # dependency's files-only group does not materialize anything.
-            executable_group = _GROUP_ENTRYPOINT
-            entries.append(runfiles_groups.entry(
-                name = executable_group,
-                content = entrypoint_files,
-                kind = "first_party",
-                rank = runfiles_groups.RANK_EXECUTABLE,
-                merge_affinity = _AFFINITY,
-            ))
-            if collected != None:
-                for entry in collected.groups:
-                    entries.append(runfiles_groups.derive(entry, rank = _dep_rank(entry.name, own_repo)))
-
-        elif ctx.attr.runfiles_grouping == "by_repo":
-            # One group per repository: a *named* group, because many targets
-            # contribute to each one. Members' weights are summed, and their
-            # affinity and kind adopted, so the aggregate still carries usable
-            # merge hints.
-            #
-            # Reading the repository off a per-target group is just
-            # entry.name.repo_name -- no string parsing, and no dependence on how
-            # another ruleset happens to spell its names.
-            #
-            # entry.content is opaque here: it goes straight to
-            # runfiles_groups.union(), which unions the two content forms and stays
-            # in the depset form when every part is one. A repository whose groups are all files-only therefore
-            # aggregates without building a runfiles object at all.
-            repo_contents = {own_repo: [entrypoint_files]}
-            repo_weights = {}
-            repo_affinities = {}
-            repo_kinds = {}
-            if collected != None:
-                for entry in collected.groups:
-                    repo = _entry_repo(entry.name)
-                    repo_contents.setdefault(repo, []).append(entry.content)
-                    if entry.weight != None:
-                        repo_weights[repo] = repo_weights.get(repo, 0) + entry.weight
-
-                    # Data deps without RunfilesGroupInfo contribute the empty
-                    # affinity and kind, which never override a member's.
-                    if entry.merge_affinity:
-                        repo_affinities[repo] = entry.merge_affinity
-                    if entry.kind:
-                        repo_kinds[repo] = entry.kind
-
-            executable_group = _GROUP_PREFIX + current_repo
-            for repo, parts in repo_contents.items():
-                group_name = _GROUP_PREFIX + (repo or "_main")
-                merged = runfiles_groups.union(ctx, parts)
-                if repo == own_repo:
-                    entries.append(runfiles_groups.entry(
-                        name = group_name,
-                        content = merged,
-                        kind = "first_party",
-                        rank = runfiles_groups.RANK_EXECUTABLE,
-                        weight = repo_weights.get(repo, None),
-                        merge_affinity = _AFFINITY,
-                    ))
-                else:
-                    entries.append(runfiles_groups.entry(
-                        name = group_name,
-                        content = merged,
-                        kind = repo_kinds.get(repo, ""),
-                        rank = runfiles_groups.RANK_SHARED_DEPS,
-                        weight = repo_weights.get(repo, None),
-                        merge_affinity = repo_affinities.get(repo, ""),
-                    ))
-
-        providers.append(RunfilesGroupInfo(
-            entries = runfiles_groups.entries(entries),
-            executable_group = executable_group,
-        ))
-
-    return providers
-
-def _entry_repo(name):
-    """Canonical repository name a group belongs to, or "" for the main repository.
-
-    A per-target group knows its repository exactly: it is the Label's. A *named*
-    group belongs to no single repository -- it is the point of a named group that
-    several targets contribute to it -- so it lands in the main-repository bucket,
-    which is where this ruleset's own named groups belong anyway.
-    """
-    if type(name) == "Label":
-        return name.repo_name
-    return ""
-
-def _dep_rank(name, own_repo):
-    """Rank for a collected dep/data group in by_target grouping.
-
-    First-party (own-repo) groups sit just below the executable; third-party
-    groups anchor at the shared-deps rank.
-    """
-    if _entry_repo(name) == own_repo:
-        return runfiles_groups.RANK_EXECUTABLE - 1
-    return runfiles_groups.RANK_SHARED_DEPS
 
 def _format_repo(repo_tuple):
     return repo_tuple[0] + "\0" + repo_tuple[1]
@@ -306,7 +244,7 @@ def _format_repo(repo_tuple):
 starlark_binary = rule(
     implementation = _starlark_binary_impl,
     executable = True,
-    attrs = dict({
+    attrs = {
         "src": attr.label(
             allow_single_file = [".star", ".bzl"],
             mandatory = True,
@@ -332,7 +270,7 @@ starlark_binary = rule(
         "runfiles_grouping": attr.string(
             default = "by_repo",
             values = ["by_repo", "by_target", "disabled"],
-            doc = "How to group runfiles in RunfilesGroupInfo.",
+            doc = "How to describe this binary's runfiles groups.",
         ),
         "repository": attr.string(
             default = "",
@@ -351,7 +289,9 @@ starlark_binary = rule(
             executable = True,
             cfg = "exec",
         ),
-    }, **runfiles_groups.RULE_ATTRS),
+        "_runfiles_group_describer": attr.label(default = Label(":starlark_binary_runfiles_group_describer")),
+        "_runfiles_group_attrs": attr.string_list(default = ["data", "deps", "interpreter", "_standard_library"]),
+    },
     toolchains = [
         launcher.finalizer_toolchain_type,
     ],

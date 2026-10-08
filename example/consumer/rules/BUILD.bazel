@@ -5,7 +5,14 @@ bzl_library(
     srcs = ["fake_package.bzl"],
     visibility = ["//visibility:public"],
     deps = [
+        "@rules_runfiles_group//runfiles_group:identity_packager",
         "@rules_runfiles_group//runfiles_group:lib",
-        "@rules_runfiles_group//runfiles_group:providers",
     ],
+)
+
+bzl_library(
+    name = "dedup_mode_test",
+    srcs = ["dedup_mode_test.bzl"],
+    visibility = ["//visibility:public"],
+    deps = ["@rules_runfiles_group//runfiles_group:lib"],
 )

@@ -1,14 +1,8 @@
 """Implementation of the starlark_library rule."""
 
 load("@rules_runfiles_group//runfiles_group:lib.bzl", "runfiles_groups")
-load("@rules_runfiles_group//runfiles_group:providers.bzl", "RunfilesGroupInfo")
 load("//producer/providers:providers.bzl", "StarlarkInfo")
 
-# This rule's group is per-target: it is named by ctx.label, so it needs no
-# ruleset name prefix -- a Label cannot collide with another ruleset's group.
-# Only starlark_binary produces *named* groups ("interpreter", "std", one per
-# repository), and those are the ones that carry a prefix.
-#
 # All groups produced by this ruleset share a single merge_affinity so that a
 # packager forced to merge prefers to keep Starlark groups together (and,
 # symmetrically, keeps other rulesets' groups together). Following the
@@ -16,6 +10,51 @@ load("//producer/providers:providers.bzl", "StarlarkInfo")
 # module name (e.g. "rules_python"). Other modules may reuse this value to opt
 # their runfiles groups into the same affinity.
 _AFFINITY = "starlark"
+
+def _describe_starlark_library_runfiles(target, ctx):
+    own_weight = ctx.rule.attr.runfiles_weight if ctx.rule.attr.runfiles_weight > 0 else None
+    own_affinity = ctx.rule.attr.merge_affinity if ctx.rule.attr.merge_affinity else _AFFINITY
+    kind = "third_party" if ctx.rule.attr.repository else "first_party"
+
+    group = ctx.rule.attr.runfiles_group
+    if group:
+        # One *named* group for this library and everything it reaches: its own
+        # sources and its deps' and data's groups all go into it.
+        # This exists for demo purposes and isn't needed for real implementations.
+        return runfiles_groups.node(
+            add = [runfiles_groups.entry(
+                name = group,
+                content = target[DefaultInfo].files,
+                kind = kind,
+                weight = own_weight,
+                merge_affinity = own_affinity,
+            )] if ctx.rule.files.srcs else [],
+            merge_from = [
+                runfiles_groups.merge_from("deps", into = group),
+                runfiles_groups.merge_from("data", fallback = "synthesize", into = group),
+            ],
+        )
+
+    return runfiles_groups.node(
+        # What this library ADDS: its own sources, as a per-target group.
+        add = [runfiles_groups.entry(
+            name = ctx.label,
+            content = target[DefaultInfo].files,
+            kind = kind,
+            weight = own_weight,
+            merge_affinity = own_affinity,
+        )],
+        # What it merely MERGES IN. The two attributes are handled differently: a
+        # `deps` target is another starlark_library, which describes itself, while
+        # a `data` target can be anything: a rule that support runfiles groups, or one that doesn't.
+        # In the latter case, "synthesize" generates a group for the data dependency on the fly.
+        merge_from = [
+            "deps",
+            runfiles_groups.merge_from("data", fallback = "synthesize"),
+        ],
+    )
+
+starlark_library_runfiles_group_describer = runfiles_groups.make_describer_rule(describe = _describe_starlark_library_runfiles)
 
 def _canonical_repo_name(ctx):
     return ctx.label.repo_name or "_main"
@@ -35,17 +74,7 @@ def _starlark_library_impl(ctx):
     else:
         loadpath = "//" + ctx.label.package
 
-    # One depset for the two things that need this library's own sources: DefaultInfo
-    # and the group entry below. The group carries the depset itself rather than a
-    # runfiles object, because a Starlark library's group is only ever files -- no
-    # symlinks, no empty filenames -- and wrapping it would retain a runfiles object
-    # per library target that carries no information the depset does not.
     own_files = depset(direct_srcs)
-
-    # One merge_all instead of a per-dep fold. A fold retains one two-slot array
-    # per step -- NestedSet.create stores a child's `children` array, not the
-    # child node -- and deepens the artifact DAG once per dep, where merge_all
-    # builds a single node and de-dupes identical subsets across all inputs.
     to_merge = [dep[DefaultInfo].default_runfiles for dep in ctx.attr.deps]
     to_merge.extend([dep[DefaultInfo].default_runfiles for dep in ctx.attr.data])
     if ctx.files.data:
@@ -53,7 +82,7 @@ def _starlark_library_impl(ctx):
     own_runfiles = ctx.runfiles(transitive_files = own_files)
     runfiles = own_runfiles.merge_all(to_merge) if to_merge else own_runfiles
 
-    providers = [
+    return [
         DefaultInfo(
             files = own_files,
             runfiles = runfiles,
@@ -65,49 +94,9 @@ def _starlark_library_impl(ctx):
         ),
     ]
 
-    # Honor the global on/off switch: emit no RunfilesGroupInfo when disabled.
-    # DefaultInfo and StarlarkInfo are still returned (deps rely on them).
-    if not runfiles_groups.is_enabled(ctx):
-        return providers
-
-    own_weight = ctx.attr.runfiles_weight if ctx.attr.runfiles_weight > 0 else None
-    own_affinity = ctx.attr.merge_affinity if ctx.attr.merge_affinity else _AFFINITY
-
-    # One entry of its own plus the dependencies' entry depsets by reference. No
-    # dict, no per-level copy of the transitive group set: the cost of this
-    # provider is independent of how many groups the closure contains.
-    #
-    # The own entry goes through `own =` rather than into a second, wrapping
-    # depset, so the depset gains only one level of depth per library rather than
-    # two -- which doubles how deep a dependency chain may get before Bazel's
-    # nested set depth limit rejects it.
-    providers.append(RunfilesGroupInfo(entries = runfiles_groups.collect(
-        ctx,
-        # Each of deps and data is an iterable of ctx.attr values, so a rule with
-        # several Label-typed attributes collects from all of them in one call.
-        # This rule has one of each, and they are handled differently: a `deps`
-        # target without RunfilesGroupInfo contributes nothing, where a `data` one
-        # gets an entry synthesized for it.
-        deps = [ctx.attr.deps],
-        data = [ctx.attr.data],
-        own = [runfiles_groups.entry(
-            # A per-target group: this library's own sources, and nothing else.
-            # ctx.label is already interned and globally unique, so it needs no
-            # ruleset prefix and costs nothing to name.
-            name = ctx.label,
-            content = own_files,
-            # A library in an external repository is third-party code as far as a
-            # packager is concerned; one in this workspace is not.
-            kind = "third_party" if ctx.attr.repository else "first_party",
-            weight = own_weight,
-            merge_affinity = own_affinity,
-        )],
-    )))
-    return providers
-
 starlark_library = rule(
     implementation = _starlark_library_impl,
-    attrs = dict({
+    attrs = {
         "srcs": attr.label_list(
             allow_files = [".star", ".bzl"],
             doc = "Starlark source files.",
@@ -128,6 +117,20 @@ starlark_library = rule(
             default = 0,
             doc = "Weight hint for this library's runfiles group. If > 0, set as the group entry's weight.",
         ),
+        "runfiles_group": attr.string(
+            default = "",
+            doc = """\
+If set, a named runfiles group that this library's own sources and everything it
+merges in from deps and data go into, instead of one per-target group each.
+
+For a library that is always packaged as a whole -- a standard library, say --
+this makes the library itself the place where its pieces are merged, so all
+binaries share one layer for it. Prefix the name with something unique to your
+ruleset, e.g. "starlark_runfiles_group#std".
+
+Note: This exists for demo purposes. Real implementations don't need this.
+""",
+        ),
         "merge_affinity": attr.string(
             default = "",
             doc = """\
@@ -138,5 +141,11 @@ another ruleset (the recommendation is to use a module name, e.g. all
 JVM-shaped libraries across modules could use "rules_java").
 """,
         ),
-    }, **runfiles_groups.RULE_ATTRS),
+        # These attributes signal support for runfiles groups.
+        # Without them, a packager would synthesize a
+        # coarse-grained group for all runfiles of this target
+        # on the fly.
+        "_runfiles_group_describer": attr.label(default = Label(":starlark_library_runfiles_group_describer")),
+        "_runfiles_group_attrs": attr.string_list(default = ["data", "deps"]),
+    },
 )

@@ -1,0 +1,160 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
+bzl_library(
+    name = "aspect_step",
+    srcs = ["aspect_step.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        ":attrs",
+        ":constants",
+        ":describe",
+        ":entry",
+        ":packager",
+        ":partial",
+        ":resolve",
+        "//runfiles_group/private/providers:runfiles_group_describer_info",
+    ],
+)
+
+bzl_library(
+    name = "attrs",
+    srcs = ["attrs.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        ":constants",
+        ":entry",
+    ],
+)
+
+bzl_library(
+    name = "constants",
+    srcs = ["constants.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+)
+
+bzl_library(
+    name = "content",
+    srcs = ["content.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        ":constants",
+    ],
+)
+
+bzl_library(
+    name = "describe",
+    srcs = ["describe.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        ":constants",
+        ":entry",
+        ":names",
+        ":partial",
+        "//runfiles_group/private/providers:runfiles_group_describer_info",
+    ],
+)
+
+bzl_library(
+    name = "entry",
+    srcs = ["entry.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        ":constants",
+        ":content",
+        ":names",
+        "//runfiles_group/private/providers:runfiles_group_info",
+    ],
+)
+
+bzl_library(
+    name = "finalize",
+    srcs = ["finalize.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        ":constants",
+        ":limit",
+        ":names",
+        ":packager",
+        ":resolve",
+        ":resolved",
+        "//runfiles_group/private/providers:runfiles_group_transform_info",
+    ],
+)
+
+bzl_library(
+    name = "flag",
+    srcs = ["flag.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        "@bazel_skylib//rules:common_settings",
+    ],
+)
+
+bzl_library(
+    name = "limit",
+    srcs = ["limit.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        ":constants",
+        ":names",
+        ":packager",
+        ":partial",
+        ":resolve",
+        ":resolved",
+    ],
+)
+
+bzl_library(
+    name = "names",
+    srcs = ["names.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        ":constants",
+    ],
+)
+
+bzl_library(
+    name = "packager",
+    srcs = ["packager.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        ":constants",
+        ":content",
+        "@bazel_features//:features",
+    ],
+)
+
+bzl_library(
+    name = "partial",
+    srcs = ["partial.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        ":constants",
+        ":entry",
+        ":names",
+        "//runfiles_group/private/providers:runfiles_group_info",
+        "//runfiles_group/private/providers:runfiles_group_partial_info",
+    ],
+)
+
+bzl_library(
+    name = "resolve",
+    srcs = ["resolve.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        ":constants",
+        ":partial",
+        "//runfiles_group/private/providers:runfiles_group_partial_info",
+    ],
+)
+
+bzl_library(
+    name = "resolved",
+    srcs = ["resolved.bzl"],
+    visibility = ["//runfiles_group/private:__subpackages__"],
+    deps = [
+        ":constants",
+        ":names",
+        ":partial",
+    ],
+)

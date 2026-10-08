@@ -1,4 +1,10 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load(":asset_bundle.bzl", "asset_bundle_runfiles_group_describer")
+load(":plain_binary.bzl", "plain_binary_runfiles_group_describer")
+load(":shared_bundle.bzl", "shared_bundle_runfiles_group_describer")
+load(":starlark_app.bzl", "starlark_app_runfiles_group_describer")
+load(":starlark_binary.bzl", "starlark_binary_runfiles_group_describer")
+load(":starlark_library.bzl", "starlark_library_runfiles_group_describer")
 
 bzl_library(
     name = "asset_bundle",
@@ -6,7 +12,21 @@ bzl_library(
     visibility = ["//visibility:public"],
     deps = [
         "@rules_runfiles_group//runfiles_group:lib",
-        "@rules_runfiles_group//runfiles_group:providers",
+    ],
+)
+
+bzl_library(
+    name = "foreign_plugin",
+    srcs = ["foreign_plugin.bzl"],
+    visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "plain_binary",
+    srcs = ["plain_binary.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@rules_runfiles_group//runfiles_group:lib",
     ],
 )
 
@@ -16,7 +36,6 @@ bzl_library(
     visibility = ["//visibility:public"],
     deps = [
         "@rules_runfiles_group//runfiles_group:lib",
-        "@rules_runfiles_group//runfiles_group:providers",
     ],
 )
 
@@ -26,7 +45,7 @@ bzl_library(
     visibility = ["//visibility:public"],
     deps = [
         "//producer/providers",
-        "@rules_runfiles_group//runfiles_group:providers",
+        "@rules_runfiles_group//runfiles_group:lib",
     ],
 )
 
@@ -36,7 +55,7 @@ bzl_library(
     visibility = ["//visibility:public"],
     deps = [
         "//producer/providers",
-        "@rules_runfiles_group//runfiles_group:providers",
+        "@rules_runfiles_group//runfiles_group:lib",
     ],
 )
 
@@ -47,6 +66,36 @@ bzl_library(
     deps = [
         "//producer/providers",
         "@hermetic_launcher//launcher:lib_bzl",
-        "@rules_runfiles_group//runfiles_group:providers",
+        "@rules_runfiles_group//runfiles_group:lib",
     ],
+)
+
+starlark_library_runfiles_group_describer(
+    name = "starlark_library_runfiles_group_describer",
+    visibility = ["//visibility:public"],
+)
+
+starlark_binary_runfiles_group_describer(
+    name = "starlark_binary_runfiles_group_describer",
+    visibility = ["//visibility:public"],
+)
+
+asset_bundle_runfiles_group_describer(
+    name = "asset_bundle_runfiles_group_describer",
+    visibility = ["//visibility:public"],
+)
+
+shared_bundle_runfiles_group_describer(
+    name = "shared_bundle_runfiles_group_describer",
+    visibility = ["//visibility:public"],
+)
+
+starlark_app_runfiles_group_describer(
+    name = "starlark_app_runfiles_group_describer",
+    visibility = ["//visibility:public"],
+)
+
+plain_binary_runfiles_group_describer(
+    name = "plain_binary_runfiles_group_describer",
+    visibility = ["//visibility:public"],
 )

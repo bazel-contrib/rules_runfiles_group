@@ -19,6 +19,9 @@ local_starlark_repository(
     name = "std",
     copy_files = {"@sha256.bzl//:sha256.star": "sha256/sha256.star"},
     repo_file = "//producer:stdlib_repo/REPO.bazel",
+    # Matches starlark_binary's std group, so the standard library arrives at every
+    # binary as one group, merged once on @std itself.
+    runfiles_group = "starlark_runfiles_group#std",
 )
 
 local_starlark_repository(
