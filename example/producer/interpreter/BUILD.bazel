@@ -1,4 +1,5 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("//producer/rules:starlark_toolchain.bzl", "starlark_toolchain")
 
 go_library(
     name = "interpreter_lib",
@@ -17,4 +18,21 @@ go_binary(
     embed = [":interpreter_lib"],
     pure = "on",
     visibility = ["//visibility:public"],
+)
+
+toolchain_type(
+    name = "toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+starlark_toolchain(
+    name = "starlark_toolchain",
+    interpreter = ":interpreter",
+    standard_library = "@std",
+)
+
+toolchain(
+    name = "toolchain",
+    toolchain = ":starlark_toolchain",
+    toolchain_type = ":toolchain_type",
 )

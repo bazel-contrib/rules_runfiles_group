@@ -20,7 +20,7 @@ def _skip_interpreter_transform(resolved):
     # Fails loudly if the interpreter group happened to carry the executable,
     # instead of silently dropping the entrypoint's supporting files.
     return runfiles_groups.resolved(
-        [entry for entry in resolved.groups if entry.name != _INTERPRETER],
+        [group for group in resolved.groups if group.name != _INTERPRETER],
         executable_group = resolved.executable_group,
     )
 

@@ -1,28 +1,18 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 
-# Global on/off switch for RunfilesGroupInfo emission, shared by every producing
-# ruleset. Emitting the providers costs a little extra memory on every target,
-# which is wasted when no packaging rule in the build consumes them; this flag
-# lets a build turn emission on only where it is needed.
-#
-# Producing rules read it via runfiles_groups.is_enabled(ctx) (after merging
-# runfiles_groups.RULE_ATTRS into their attrs). Consumer label:
-# @rules_runfiles_group//runfiles_group:enabled.
-#
-# Defaults to False (no providers) so consumers opt in explicitly and only pay
-# for the providers when a packaging rule actually consumes them. Enable it for a
-# whole build with --@rules_runfiles_group//runfiles_group:enabled=true. This
-# repo re-enables it in its own .bazelrc so the runfiles_group analysis tests,
-# which require the providers, keep exercising the real grouping logic.
 bool_flag(
     name = "enabled",
     build_setting_default = False,
+    deprecation = """\
+This was a global option to enable/disable RunfileGroupInfo.
+Collection is now done on-demand using an aspect, so this is effectively a no-op.""",
     visibility = ["//visibility:public"],
 )
 
 exports_files(
     srcs = [
+        "identity_packager.bzl",
         "lib.bzl",
         "providers.bzl",
         "runfiles_group_analysis_test.bzl",
@@ -35,9 +25,18 @@ bzl_library(
     srcs = ["providers.bzl"],
     visibility = ["//visibility:public"],
     deps = [
+        "//runfiles_group/private/providers:runfiles_group_describer_info",
         "//runfiles_group/private/providers:runfiles_group_info",
+        "//runfiles_group/private/providers:runfiles_group_partial_info",
         "//runfiles_group/private/providers:runfiles_group_transform_info",
     ],
+)
+
+bzl_library(
+    name = "identity_packager",
+    srcs = ["identity_packager.bzl"],
+    visibility = ["//visibility:public"],
+    deps = ["//runfiles_group/private/aspects:identity"],
 )
 
 bzl_library(
