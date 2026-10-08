@@ -7,17 +7,18 @@ to transform runfiles groups.
 _DOC = """\
 Information about how to transform a target's resolved runfiles groups.
 
-`transform` takes the value `runfiles_groups.resolve()` produced --
-`struct(groups, by_name, executable_group)` -- and returns a new one, built with
-`runfiles_groups.resolved()`. Edit or create individual entries with
-`runfiles_groups.derive()` and `runfiles_groups.entry()`. A transform that changes
-nothing should `return resolved` unchanged.
+`transform` takes the value `runfiles_groups.finalize()` produced before limiting --
+`struct(groups, by_name, executable_group)`, whose groups are
+RunfilesGroupPartialInfo -- and returns a new one, built with
+`runfiles_groups.resolved()`. Edit individual groups with
+`runfiles_groups.derive()`. A transform that changes nothing should
+`return resolved` unchanged.
 
-It runs once per consuming target, after the entry depset has been flattened
-exactly once, so it is pure list and dict work: no depset is rebuilt and no
-provider is reconstructed. A transform has no `ctx`, so it cannot build a runfiles
-object -- an entry it creates from scratch has to carry a depset of File, which is
-`runfiles_groups.entry()`'s files-only content form.
+It runs once per consuming target, after the partials have been flattened and
+merged by name, so it is pure list and dict work. A transform has no `ctx` and no
+access to the packager, so it can drop, rename, re-rank or otherwise re-label
+groups, but it cannot create contents: a partial's handle is whatever the
+packager's `materialize` or `merge` built, and is opaque to a transform.
 
     def _drop_docs(resolved):
         if not [e for e in resolved.groups if e.kind == "docs"]:

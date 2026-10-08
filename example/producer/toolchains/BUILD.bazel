@@ -1,0 +1,31 @@
+load("//producer/rules:runtime_toolchain.bzl", "plain_toolchain", "runtime_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+toolchain_type(name = "runtime_toolchain_type")
+
+toolchain_type(name = "tool_toolchain_type")
+
+toolchain_type(name = "missing_toolchain_type")
+
+runtime_toolchain(
+    name = "runtime",
+    srcs = ["runtime.txt"],
+)
+
+plain_toolchain(
+    name = "tool",
+    srcs = ["tool.txt"],
+)
+
+toolchain(
+    name = "runtime_toolchain",
+    toolchain = ":runtime",
+    toolchain_type = ":runtime_toolchain_type",
+)
+
+toolchain(
+    name = "tool_toolchain",
+    toolchain = ":tool",
+    toolchain_type = ":tool_toolchain_type",
+)

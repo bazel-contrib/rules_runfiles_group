@@ -7,10 +7,17 @@ bazel_dep(name = "hermetic_launcher", version = "0.0.5")
 bazel_dep(name = "gazelle", version = "0.50.0")
 bazel_dep(name = "sha256.bzl", version = "0.0.1")
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
+bazel_dep(name = "platforms", version = "1.0.0")
 
 local_path_override(
     module_name = "rules_runfiles_group",
     path = "../",
+)
+
+register_toolchains(
+    "//producer/interpreter:toolchain",
+    "//producer/toolchains:runtime_toolchain",
+    "//producer/toolchains:tool_toolchain",
 )
 
 local_starlark_repository = use_repo_rule("//producer/repository_rules:local_starlark_repository.bzl", "local_starlark_repository")
@@ -19,6 +26,10 @@ local_starlark_repository(
     name = "std",
     copy_files = {"@sha256.bzl//:sha256.star": "sha256/sha256.star"},
     repo_file = "//producer:stdlib_repo/REPO.bazel",
+    # Matches the std group described in producer/rules/starlark_runtime.bzl, so
+    # the standard library arrives at every binary as one group, merged once on
+    # @std itself.
+    runfiles_group = "starlark_runfiles_group#std",
 )
 
 local_starlark_repository(

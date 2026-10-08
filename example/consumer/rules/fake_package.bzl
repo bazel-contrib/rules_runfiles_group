@@ -1,13 +1,8 @@
-"""Consumer rule that resolves runfiles groups from a binary via an aspect."""
+"""Consumer rule that packages a binary's runfiles groups via the identity packager."""
 
+load("@rules_runfiles_group//runfiles_group:identity_packager.bzl", "RunfilesGroupIdentityInfo", "runfiles_groups_identity_aspect")
 load("@rules_runfiles_group//runfiles_group:lib.bzl", "runfiles_groups")
 
-# The aspect exists for exactly one reason: aspect_hints is only reachable from an
-# aspect (ctx.rule.attr.aspect_hints), not from a rule. So the aspect forwards the
-# hint targets -- O(number of hints) references, which Skyframe retains anyway --
-# and the rule does all the O(groups) work transiently. Storing the output of
-# runfiles_groups.resolve() here instead would retain a list plus one entry per
-# group on every packaging target for the life of the build.
 _FakePackageHintsInfo = provider(
     doc = "The binary's aspect_hints, forwarded so the packaging rule can resolve groups.",
     fields = {"aspect_hints": "list of Target: the binary's aspect_hints."},
@@ -26,21 +21,12 @@ def _short_path(file):
 def _fake_package_impl(ctx):
     binary = ctx.attr.binary
     hints = binary[_FakePackageHintsInfo].aspect_hints
-
-    # One call does the whole resolution protocol: flatten the entry depset once,
-    # fold duplicate group names, apply the metadata overrides from the target and
-    # from the hints, run the hint transforms, order by (rank, name). The ctx is
-    # needed only if folding has to union a files-only group with a runfiles-form
-    # one.
-    resolved = runfiles_groups.resolve(ctx, binary, aspect_hints = hints)
-
-    if resolved == None:
-        # Mandatory fallback: a binary that does not group its runfiles is
-        # packaged as a single group.
-        resolved = runfiles_groups.resolved([runfiles_groups.entry(
-            name = "fake_package#default",
-            content = binary[DefaultInfo].default_runfiles,
-        )])
+    resolved = runfiles_groups.finalize(
+        ctx,
+        binary[RunfilesGroupIdentityInfo],
+        runfiles_groups.IDENTITY_OPS,
+        aspect_hints = hints,
+    )
 
     # Write the manifest from an Args object rather than a string built during
     # analysis: json.encode(...) over every path materialized an O(all files)
@@ -52,17 +38,18 @@ def _fake_package_impl(ctx):
     # or a named group's string. before_each rather than format_each, because group
     # names are arbitrary strings and '%' is legal in a label, which would corrupt a
     # format template.
+    # The identity packager's handles are runfiles contents, and
     # runfiles_groups.files() reads either content form, so this packager never has
     # to know whether a producer handed over a runfiles object or a bare depset. A
-    # real packager that has to place a complete runfiles tree -- symlinks, empty
-    # files and all -- would call runfiles_groups.runfiles(ctx, entry) instead, and
+    # packager that has to place a complete runfiles tree -- symlinks, empty files
+    # and all -- would call runfiles_groups.runfiles(ctx, group.handle) instead, and
     # would still not care which form it started from.
     args = ctx.actions.args()
     args.set_param_file_format("multiline")
-    for entry in resolved.groups:
+    for group in resolved.groups:
         args.add_all(
-            runfiles_groups.files(entry),
-            before_each = "{}\t{}".format(entry.kind, runfiles_groups.name_str(entry.name)),
+            runfiles_groups.files(group.handle),
+            before_each = "{}\t{}".format(group.kind, runfiles_groups.name_str(group.name)),
             map_each = _short_path,
             expand_directories = False,
         )
@@ -74,8 +61,8 @@ def _fake_package_impl(ctx):
     # packager canonicalizes. A real packager would also put the launcher, the
     # runfiles symlinks and the repo mapping manifest into resolved.executable_group.
     output_groups = {}
-    for entry in resolved.groups:
-        output_groups[runfiles_groups.name_str(entry.name)] = runfiles_groups.files(entry)
+    for group in resolved.groups:
+        output_groups[runfiles_groups.name_str(group.name)] = runfiles_groups.files(group.handle)
 
     return [
         DefaultInfo(files = depset([manifest])),
@@ -87,8 +74,8 @@ fake_package = rule(
     attrs = {
         "binary": attr.label(
             mandatory = True,
-            aspects = [_fake_package_aspect],
-            doc = "A binary target. RunfilesGroupInfo is used when present.",
+            aspects = [_fake_package_aspect, runfiles_groups_identity_aspect],
+            doc = "A binary target. Its runfiles groups are used when it describes them.",
         ),
     },
 )
