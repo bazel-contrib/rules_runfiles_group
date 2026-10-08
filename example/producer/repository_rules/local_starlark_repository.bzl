@@ -57,7 +57,7 @@ def _local_starlark_repository_impl(rctx):
         target_name = pkg.rsplit("/", 1)[-1] if pkg else simple_name
         srcs = sorted([f for f, _ in files])
         path = "{}/BUILD.bazel".format(pkg) if pkg else "BUILD.bazel"
-        _write_build_file(rctx, path, target_name, srcs, simple_name, total_weight, [], main_module)
+        _write_build_file(rctx, path, target_name, srcs, simple_name, total_weight, [], main_module, "")
 
     # Root umbrella target: if there are sub-packages, ensure a root target exists that deps on them all.
     root_deps = ["//" + pkg + ":" + pkg.rsplit("/", 1)[-1] for pkg in sub_packages]
@@ -67,13 +67,13 @@ def _local_starlark_repository_impl(rctx):
         for _, size in root_files:
             total_weight += size
         srcs = sorted([f for f, _ in root_files])
-        _write_build_file(rctx, "BUILD.bazel", simple_name, srcs, simple_name, total_weight, root_deps, main_module)
+        _write_build_file(rctx, "BUILD.bazel", simple_name, srcs, simple_name, total_weight, root_deps, main_module, rctx.attr.runfiles_group)
     else:
-        _write_build_file(rctx, "BUILD.bazel", simple_name, [], simple_name, 0, root_deps, main_module)
+        _write_build_file(rctx, "BUILD.bazel", simple_name, [], simple_name, 0, root_deps, main_module, rctx.attr.runfiles_group)
 
     rctx.file("REPO.bazel", "")
 
-def _write_build_file(rctx, path, target_name, srcs, repository, weight, deps, main_module):
+def _write_build_file(rctx, path, target_name, srcs, repository, weight, deps, main_module, runfiles_group):
     lines = []
     lines.append('load("@{}//producer/rules:starlark_library.bzl", "starlark_library")'.format(main_module))
     lines.append("")
@@ -90,6 +90,8 @@ def _write_build_file(rctx, path, target_name, srcs, repository, weight, deps, m
     lines.append('    repository = "{}",'.format(repository))
     if weight > 0:
         lines.append("    runfiles_weight = {},".format(weight))
+    if runfiles_group:
+        lines.append('    runfiles_group = "{}",'.format(runfiles_group))
     lines.append('    visibility = ["//visibility:public"],')
     if deps:
         if len(deps) == 1:
@@ -112,6 +114,13 @@ local_starlark_repository = repository_rule(
         ),
         "copy_files": attr.label_keyed_string_dict(
             doc = "Map of source labels to destination paths within the repo. Use for files that live outside the source directory (e.g., '@sha256.bzl//:sha256.star': 'sha256/sha256.star').",
+        ),
+        "runfiles_group": attr.string(
+            doc = """\
+If set, the root target puts the whole repository into this one named runfiles
+group (see starlark_library's runfiles_group), merged on the root target itself,
+so every binary that depends on the repository shares it. Packages used
+directly keep their own per-target groups.""",
         ),
         "main_module": attr.string(
             default = "rules_runfiles_group_example",

@@ -1,26 +1,22 @@
-"""Generates synthetic library closures for retained-heap measurement.
+"""Generates synthetic library closures for measuring the runfiles group protocol.
 
-The point of these targets is to make the *bookkeeping* cost of the runfiles
-group providers visible while holding the file payload constant: every generated
-library shares one source file, so no `Artifact` or `NestedSet` payload grows
-with `n`. What grows is the number of group entries a target's providers hold.
+The point of these targets is to make the *bookkeeping* cost of runfiles groups
+visible while holding the file payload constant: every generated library shares one
+source file, so no `Artifact` or `NestedSet` payload grows with `n`. What grows is
+the number of group partials the packager's aspect propagates.
 
 `stress_closure(name, n)` emits `n` `starlark_library` targets where `lib0` has
 no deps and `libI` depends on `libI-1` and `libI-2`. Every library is therefore
-in the transitive closure of every later one, so with the flat bottom-up copy
-`libI` holds `I+1` groups and the whole closure holds `n*(n+1)/2` group entries.
-A design whose per-target cost is independent of the closure size keeps the last
-library's retained bytes flat as `n` grows; the flat-copy design doubles it when
-`n` doubles. That difference is what `tools/heap_budget.py` asserts, over the last
-library of each closure.
+in the transitive closure of every later one. A library adds one partial and merges
+its deps' partial depsets by reference, so its per-target cost stays flat as `n`
+grows, and the partial depset of `libI` is `I` levels deep -- which is what makes
+`chain2000` a check against Bazel's nested set depth limit.
 
-Each closure is also capped with a `by_target` binary (which materializes one group
-per transitive library) and a packaging target. The CI guard does not measure those,
-but they are there to be measured by hand -- `by_target` is the shape where a
-consumer re-materializes a name per group.
+Each closure is also capped with a `by_target` binary, which regroups every
+transitive library's partial (O(n) on the binary, once), and a packaging target.
 
-Everything is tagged `manual`: these targets exist to be measured explicitly,
-never as part of `bazel build //...`.
+Everything is tagged `manual`: these targets exist to be built and measured
+explicitly, never as part of `bazel build //...`.
 """
 
 load("//consumer/rules:fake_package.bzl", "fake_package")
