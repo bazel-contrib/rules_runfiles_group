@@ -1,0 +1,9 @@
+{
+  "url": "https://bazel-contrib.github.io/rules_runfiles_group/assets/rules_java/99.0.0-dev.20261009.1.850733b/source.tar.gz",
+  "integrity": "sha256-chCNpLwzPal13EL2nU31gnuiYgrAGJBn1P5N+cchMCQ=",
+  "strip_prefix": "rules_java-850733b4ead146fac8d1dcf4976c19a14b8f7c28",
+  "patches": {
+    "0000-set-version.patch": "sha256-ipLPJr/0hMhHyxjptsgLrz+trmXqxHGtEls2uT81tdg="
+  },
+  "patch_strip": 1
+}
