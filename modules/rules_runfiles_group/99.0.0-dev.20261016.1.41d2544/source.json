@@ -1,0 +1,9 @@
+{
+  "url": "https://bazel-contrib.github.io/rules_runfiles_group/assets/rules_runfiles_group/99.0.0-dev.20261016.1.41d2544/source.tar.gz",
+  "integrity": "sha256-4+Qncs3ZJquLc8a/+swH5LbPzeiyLGb9KGBINvPLFKE=",
+  "strip_prefix": "rules_runfiles_group-41d2544bab5c1eee0117c9e8a992631be8e0d9d1",
+  "patches": {
+    "0000-set-version.patch": "sha256-HCUrJY6V2LQvt+DJBcHuKhqET7tWFLgCGw/9eoWh7WU="
+  },
+  "patch_strip": 1
+}
