@@ -1,0 +1,7 @@
+module(
+    name = "rules_runfiles_group",
+    version = "99.0.0-dev.20261009.1.f6acddf",
+)
+
+bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "bazel_features", version = "1.51.0")
