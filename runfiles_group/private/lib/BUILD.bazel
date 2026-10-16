@@ -1,5 +1,6 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load(":packager_test.bzl", "packager_test_suite")
+load(":resolve_test.bzl", "resolve_test_suite")
 
 exports_files(
     [
@@ -173,3 +174,5 @@ bzl_library(
 )
 
 packager_test_suite(name = "packager_tests")
+
+resolve_test_suite(name = "resolve_tests")

@@ -16,7 +16,10 @@ def piece_key(raw):
     Returns:
         (contributor, handle).
     """
-    return (raw.contributor, raw.handle)
+    contributor = raw.contributor
+    if contributor == None:
+        fail("A raw runfiles group piece must have a contributor")
+    return (contributor, raw.handle)
 
 def _coverage(partial):
     """dict of piece key -> True, for everything a partial's handle holds."""
