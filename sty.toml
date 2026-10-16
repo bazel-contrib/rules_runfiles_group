@@ -13,8 +13,7 @@ missing-parameter-annotation = "error"
 missing-return-annotation = "error"
 missing-type-argument = "error"
 unsound-assignment = "error"
-# Provider, depset, and loop inference leave incomplete return types.
-unsound-return-statement = "ignore"
+unsound-return-statement = "error"
 explicit-any = "error"
 # Native ctx/provider signatures and propagation callbacks remain gradual.
 non-static-type = "ignore"
