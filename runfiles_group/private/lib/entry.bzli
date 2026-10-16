@@ -1,0 +1,14 @@
+"""Construction of a validated runfiles group entry."""
+
+load("//runfiles_group/private/providers:runfiles_group_info.bzl", "RunfilesGroupInfo")
+
+def make_entry(
+    *,
+    name: Label | str,
+    content: depset[File] | runfiles,
+    kind: str = ...,
+    rank: int = ...,
+    do_not_merge: bool = ...,
+    weight: int | None = ...,
+    merge_affinity: str = ...,
+) -> RunfilesGroupInfo: ...

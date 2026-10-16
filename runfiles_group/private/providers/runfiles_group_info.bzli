@@ -1,0 +1,29 @@
+"""A group's name, runfiles content, and merge metadata."""
+
+KINDS: list[str]
+DEFAULT_METADATA: struct[{
+    "rank": int,
+    "do_not_merge": bool,
+    "weight": None,
+    "kind": str,
+    "merge_affinity": str,
+}]
+
+def RunfilesGroupInfo(
+    *,
+    name: Label | str,
+    content: depset[File] | runfiles,
+    kind: str,
+    rank: int,
+    do_not_merge: bool,
+    weight: int | None,
+    merge_affinity: str,
+) -> record[{
+    "name": Label | str,
+    "content": depset[File] | runfiles,
+    "kind": str,
+    "rank": int,
+    "do_not_merge": bool,
+    "weight": int | None,
+    "merge_affinity": str,
+}]: ...
