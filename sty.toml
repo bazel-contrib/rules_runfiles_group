@@ -7,3 +7,15 @@
 "runfiles_group/private/lib/resolve.bzl" = "runfiles_group/private/lib/resolve.bzli"
 "runfiles_group/private/providers/runfiles_group_info.bzl" = "runfiles_group/private/providers/runfiles_group_info.bzli"
 "runfiles_group/private/providers/runfiles_group_partial_info.bzl" = "runfiles_group/private/providers/runfiles_group_partial_info.bzli"
+
+[rules]
+# Bazel aspect propagation callbacks still lack a context model.
+missing-parameter-annotation = "ignore"
+missing-return-annotation = "error"
+missing-type-argument = "error"
+unsound-assignment = "error"
+# Provider, depset, and loop inference leave incomplete return types.
+unsound-return-statement = "ignore"
+explicit-any = "error"
+# Native ctx/provider signatures and propagation callbacks remain gradual.
+non-static-type = "ignore"
