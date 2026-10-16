@@ -9,6 +9,14 @@ type PackagerOps[T] = struct[{
     "dedup": Literal["eager", "root"],
 }]
 
+def _propagation_filter(propagation_ctx) -> list[str]: ...
+
+def _toolchains_propagation_filter(propagation_ctx) -> list[str]: ...
+
+def check_ctx(where: str, ctx: object) -> None: ...
+
+def check_ops(where: str, ops: object) -> None: ...
+
 def packager_ops[T](
     *,
     materialize: Callable[[ctx, RunfilesGroupInfo], T],

@@ -2,6 +2,14 @@
 
 load("//runfiles_group/private/providers:runfiles_group_info.bzl", "RunfilesGroupInfo")
 
+def check_metadata(
+    where: str,
+    field: Literal["name", "kind", "rank", "do_not_merge", "weight", "merge_affinity"],
+    value: object,
+) -> None: ...
+
+def check_entry(where: str, entry: object) -> None: ...
+
 def make_entry(
     *,
     name: Label | str,
