@@ -1,5 +1,10 @@
 # rules_runfiles_group
 
+> [!WARNING]
+> The API is still being stabilized and may change without notice. It is currently under review by
+> the maintainers of `rules_java` and `rules_python`. Once everyone agrees on the final API, a new
+> version will be released and the API will be frozen.
+
 A Bazel module that lets `*_binary` rules split their runfiles into named **groups**, and lets
 packaging rules consume those groups as partially ordered **layers**. Where a binary's ruleset
 describes its groups, a packager can produce better artifacts — container images with shared base
@@ -604,12 +609,17 @@ latter.
 
 | Ruleset | Grouping | Metadata | Weight hints |
 |---------|----------|----------|-------------|
+| [`rules_java`](https://github.com/bazelbuild/rules_java) ([PR #368](https://github.com/bazelbuild/rules_java/pull/368), in review) | JDK, one group per `java_import` / `java_library`, executable | `kind`, `merge_affinity = "rules_java"` | `java_import.runfiles_weight` |
+| [`rules_python`](https://github.com/bazel-contrib/rules_python) ([PR #4254](https://github.com/bazel-contrib/rules_python/pull/4254), in review) | Interpreter + stdlib, one group per wheel, one per `py_library` / `data` target, executable | ranks | file count per wheel |
 | *Your ruleset here* | | | |
 
 ### Packaging rules consuming runfiles groups
 
 | Ruleset | Ordering | Merge-to-limit | `aspect_hints` support |
 |---------|----------|----------------|----------------------|
+| [`rules_img`](https://github.com/bazel-contrib/rules_img) (on the [`rgi_aspect_wip`](https://github.com/bazel-contrib/rules_img/tree/rgi_aspect_wip) branch)¹ | One layer per group, in rank order | Yes, via `layer_budget` | Yes |
 | *Your ruleset here* | | | |
+
+¹ Support lives on a separate branch until the API is frozen; it will be merged after that.
 
 > To add your ruleset to these tables, open a pull request.
