@@ -1,0 +1,17 @@
+"""Runfiles group content validation and conversion."""
+
+def _check_content(where: str, content: depset[File] | runfiles) -> None: ...
+
+def stored_content(
+    where: str,
+    content: depset[File] | runfiles,
+) -> depset[File] | runfiles: ...
+
+def content_files(content: depset[File] | runfiles) -> depset[File]: ...
+
+def content_runfiles(ctx: ctx, content: depset[File] | runfiles) -> runfiles: ...
+
+def union_contents(
+    ctx: ctx,
+    contents: list[depset[File] | runfiles],
+) -> depset[File] | runfiles: ...

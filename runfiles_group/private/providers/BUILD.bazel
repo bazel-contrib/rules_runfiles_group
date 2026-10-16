@@ -1,5 +1,10 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 
+exports_files(
+    ["runfiles_group_info.bzli"],
+    visibility = ["//visibility:public"],
+)
+
 bzl_library(
     name = "runfiles_group_info",
     srcs = ["runfiles_group_info.bzl"],

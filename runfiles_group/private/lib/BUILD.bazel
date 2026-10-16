@@ -1,5 +1,14 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 
+exports_files(
+    [
+        "content.bzli",
+        "entry.bzli",
+        "names.bzli",
+    ],
+    visibility = ["//visibility:public"],
+)
+
 bzl_library(
     name = "aspect_step",
     srcs = ["aspect_step.bzl"],
