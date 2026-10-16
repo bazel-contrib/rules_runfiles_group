@@ -5,6 +5,9 @@ exports_files(
         "content.bzli",
         "entry.bzli",
         "names.bzli",
+        "packager.bzli",
+        "partial.bzli",
+        "resolve.bzli",
     ],
     visibility = ["//visibility:public"],
 )
