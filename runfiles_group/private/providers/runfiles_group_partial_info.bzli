@@ -1,0 +1,24 @@
+"""A materialized group's metadata and packager-defined handle."""
+
+def RunfilesGroupPartialInfo[T](
+    *,
+    name: Label | str,
+    contributor: Label | None,
+    handle: T,
+    pieces: depset[tuple[Label | None, T]],
+    kind: str,
+    rank: int,
+    do_not_merge: bool,
+    weight: int | None,
+    merge_affinity: str,
+) -> record[{
+    "name": Label | str,
+    "contributor": Label | None,
+    "handle": T,
+    "pieces": depset[tuple[Label | None, T]],
+    "kind": str,
+    "rank": int,
+    "do_not_merge": bool,
+    "weight": int | None,
+    "merge_affinity": str,
+}]: ...

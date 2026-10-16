@@ -1,0 +1,28 @@
+"""A packager uses one handle type across materialization and merging."""
+
+load("//runfiles_group/private/providers:runfiles_group_info.bzl", "RunfilesGroupInfo")
+load("//runfiles_group/private/providers:runfiles_group_partial_info.bzl", "RunfilesGroupPartialInfo")
+
+type PackagerOps[T] = struct[{
+    "materialize": Callable[[ctx, RunfilesGroupInfo], T],
+    "merge": Callable[[ctx, Label | str, list[RunfilesGroupPartialInfo[T]]], T],
+    "dedup": Literal["eager", "root"],
+}]
+
+def packager_ops[T](
+    *,
+    materialize: Callable[[ctx, RunfilesGroupInfo], T],
+    merge: Callable[[ctx, Label | str, list[RunfilesGroupPartialInfo[T]]], T],
+    dedup: Literal["eager", "root"] = ...,
+) -> PackagerOps[T]: ...
+
+def _identity_materialize(
+    _ctx: ctx,
+    entry: RunfilesGroupInfo,
+) -> depset[File] | runfiles: ...
+
+def _identity_merge(
+    ctx: ctx,
+    _name: Label | str,
+    partials: list[RunfilesGroupPartialInfo[depset[File] | runfiles]],
+) -> depset[File] | runfiles: ...
