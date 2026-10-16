@@ -15,5 +15,7 @@ missing-type-argument = "error"
 unsound-assignment = "error"
 unsound-return-statement = "error"
 explicit-any = "error"
-# Native ctx/provider signatures and propagation callbacks remain gradual.
-non-static-type = "ignore"
+non-static-type = "error"
+
+[analysis]
+strict-generic-narrowing = true
