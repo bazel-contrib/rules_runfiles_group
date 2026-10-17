@@ -3,9 +3,9 @@
 load("//runfiles_group/private/providers:runfiles_group_info.bzl", "RunfilesGroupInfo")
 load("//runfiles_group/private/providers:runfiles_group_partial_info.bzl", "RunfilesGroupPartialInfo")
 
-type PackagerOps[T] = struct[{
-    "materialize": Callable[[ctx, RunfilesGroupInfo], T],
-    "merge": Callable[[ctx, Label | str, list[RunfilesGroupPartialInfo[T]]], T],
+type PackagerOps[T, C: ctx[object, object] = ctx[object, object]] = struct[{
+    "materialize": Callable[[C, RunfilesGroupInfo], T],
+    "merge": Callable[[C, Label | str, list[RunfilesGroupPartialInfo[T]]], T],
     "dedup": Literal["eager", "root"],
 }]
 
@@ -21,20 +21,20 @@ def check_ctx(where: str, ctx: object) -> None: ...
 
 def check_ops(where: str, ops: object) -> None: ...
 
-def packager_ops[T](
+def packager_ops[T, C: ctx[object, object]](
     *,
-    materialize: Callable[[ctx, RunfilesGroupInfo], T],
-    merge: Callable[[ctx, Label | str, list[RunfilesGroupPartialInfo[T]]], T],
+    materialize: Callable[[C, RunfilesGroupInfo], T],
+    merge: Callable[[C, Label | str, list[RunfilesGroupPartialInfo[T]]], T],
     dedup: Literal["eager", "root"] = ...,
-) -> PackagerOps[T]: ...
+) -> PackagerOps[T, C]: ...
 
 def _identity_materialize(
-    _ctx: ctx,
+    _ctx: ctx[object, object],
     entry: RunfilesGroupInfo,
 ) -> depset[File] | runfiles: ...
 
 def _identity_merge(
-    ctx: ctx,
+    ctx: ctx[object, object],
     _name: Label | str,
     partials: list[RunfilesGroupPartialInfo[depset[File] | runfiles]],
 ) -> depset[File] | runfiles: ...
