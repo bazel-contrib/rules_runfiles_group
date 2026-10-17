@@ -1,0 +1,21 @@
+[type-interfaces]
+"runfiles_group/private/lib/content.bzl" = "runfiles_group/private/lib/content.bzli"
+"runfiles_group/private/lib/entry.bzl" = "runfiles_group/private/lib/entry.bzli"
+"runfiles_group/private/lib/names.bzl" = "runfiles_group/private/lib/names.bzli"
+"runfiles_group/private/lib/packager.bzl" = "runfiles_group/private/lib/packager.bzli"
+"runfiles_group/private/lib/partial.bzl" = "runfiles_group/private/lib/partial.bzli"
+"runfiles_group/private/lib/resolve.bzl" = "runfiles_group/private/lib/resolve.bzli"
+"runfiles_group/private/providers/runfiles_group_info.bzl" = "runfiles_group/private/providers/runfiles_group_info.bzli"
+"runfiles_group/private/providers/runfiles_group_partial_info.bzl" = "runfiles_group/private/providers/runfiles_group_partial_info.bzli"
+
+[rules]
+missing-parameter-annotation = "error"
+missing-return-annotation = "error"
+missing-type-argument = "error"
+unsound-assignment = "error"
+unsound-return-statement = "error"
+explicit-any = "error"
+non-static-type = "error"
+
+[analysis]
+strict-generic-narrowing = true
