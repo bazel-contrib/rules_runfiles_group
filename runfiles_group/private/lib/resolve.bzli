@@ -26,24 +26,24 @@ def disjoint_inputs[T](
 
 def _inputs_weight[T](inputs: list[RunfilesGroupPartialInfo[T]]) -> int | None: ...
 
-def make_merged[T](
-    ctx: ctx,
-    ops: PackagerOps[T],
+def make_merged[T, C: ctx[object, object]](
+    ctx: C,
+    ops: PackagerOps[T, C],
     name: Label | str,
     inputs: list[RunfilesGroupPartialInfo[T]],
     metadata: Metadata,
     weight: int | None,
 ) -> RunfilesGroupPartialInfo[T]: ...
 
-def resolve_name[T](
-    ctx: ctx,
-    ops: PackagerOps[T],
+def resolve_name[T, C: ctx[object, object]](
+    ctx: C,
+    ops: PackagerOps[T, C],
     name: Label | str,
     parts: list[RunfilesGroupPartialInfo[T]],
 ) -> RunfilesGroupPartialInfo[T]: ...
 
-def fold[T](
-    ctx: ctx,
-    ops: PackagerOps[T],
+def fold[T, C: ctx[object, object]](
+    ctx: C,
+    ops: PackagerOps[T, C],
     partials: list[RunfilesGroupPartialInfo[T]],
 ) -> dict[Label | str, RunfilesGroupPartialInfo[T]]: ...
