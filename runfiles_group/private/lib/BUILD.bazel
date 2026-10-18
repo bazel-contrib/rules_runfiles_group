@@ -11,6 +11,7 @@ exports_files(
         "packager.bzli",
         "partial.bzli",
         "resolve.bzli",
+        "resolved.bzli",
     ],
     visibility = ["//visibility:public"],
 )

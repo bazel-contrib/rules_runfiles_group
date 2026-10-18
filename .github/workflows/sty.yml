@@ -32,4 +32,5 @@ jobs:
             runfiles_group/private/lib/packager.bzl
             runfiles_group/private/lib/partial.bzl
             runfiles_group/private/lib/resolve.bzl
+            runfiles_group/private/lib/resolved.bzl
             runfiles_group/private/providers/runfiles_group_partial_info.bzl
