@@ -20,9 +20,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: tamird/sty@2047adc3c9cd1a3f2a305d9713e6cd5c0494fc9c
-        continue-on-error: true
+      - uses: tamird/sty@eb4e48ace9ccd8573da48d7d04a3593e2e2d7cea
         with:
+          audit-loads: true
           bazel-version: '9.3.0'
           files: |
             runfiles_group/private/lib/content.bzl
