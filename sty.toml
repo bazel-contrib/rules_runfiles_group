@@ -24,3 +24,4 @@ division-by-zero = "error"
 
 [analysis]
 strict-generic-narrowing = true
+require-valid-suppressions = true
