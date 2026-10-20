@@ -124,14 +124,14 @@ def limit(ctx, ops, resolved, *, max_groups, default_weight = 0, merged_group_na
 
     by_name = dict(by_name)
 
-    # Canonical forms of the surviving names, so that a merged_group_name callback
-    # returning the string spelling of a Label-named group is caught. The raw
-    # `out_name in by_name` test below cannot see that: the two are different keys
-    # that render identically, and overwriting would drop a group's runfiles.
-    name_strs = {}
+    # String-named groups are already indexed in by_name. Index Label-named
+    # groups by their canonical spelling too, so callback results cannot collide
+    # with a surviving group in either form.
+    labels_by_name = {}
     if merged_group_name != None:
         for name in by_name:
-            name_strs[name_str(name)] = name
+            if type(name) == LABEL_TYPE:
+                labels_by_name[name_str(name)] = name
 
     # The groups of a merged group are accumulated and handed to ops.merge once at
     # the end, so a packager builds each merged group once rather than once per
@@ -185,11 +185,13 @@ def limit(ctx, ops, resolved, *, max_groups, default_weight = 0, merged_group_na
                     repr(out_name),
                 )
 
-            # Silently overwriting a third, untouched group would drop its
-            # runfiles and violate its do_not_merge. Compared in canonical form so
-            # that a string spelling of a Label-named group is caught too.
+            # The callback may return either input name, but cannot reuse the
+            # canonical spelling of a third, untouched group.
+            for name in pair:
+                if type(name) == LABEL_TYPE:
+                    labels_by_name.pop(name_str(name))
             out_str = name_str(out_name)
-            existing = name_strs.get(out_str)
+            existing = out_str if out_str in by_name else labels_by_name.get(out_str)
             if existing != None:
                 fail("runfiles_groups.limit: merged_group_name({}, {}) returned {}, which is an existing group ({})".format(
                     described_name(lighter),
@@ -197,6 +199,8 @@ def limit(ctx, ops, resolved, *, max_groups, default_weight = 0, merged_group_na
                     described_name(out_name),
                     described_name(existing),
                 ))
+            if type(out_name) == LABEL_TYPE:
+                labels_by_name[out_str] = out_name
         else:
             out_name = heavier
 
@@ -216,10 +220,6 @@ def limit(ctx, ops, resolved, *, max_groups, default_weight = 0, merged_group_na
             "weight": light_weight + heavy_weight,
         })
         by_name[out_name] = merged
-        if merged_group_name != None:
-            name_strs.pop(name_str(lighter), None)
-            name_strs.pop(name_str(heavier), None)
-            name_strs[out_str] = out_name
         sort_keys[out_name] = sort_key(out_name)
         _bucket_add(by_rank_affinity, _affinity_key(merged), out_name)
         _bucket_add(by_rank, merged.rank, out_name)
