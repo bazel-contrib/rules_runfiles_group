@@ -1,4 +1,5 @@
 [type-interfaces]
+"runfiles_group/private/lib/attrs.bzl" = "runfiles_group/private/lib/attrs.bzli"
 "runfiles_group/private/lib/content.bzl" = "runfiles_group/private/lib/content.bzli"
 "runfiles_group/private/lib/describe.bzl" = "runfiles_group/private/lib/describe.bzli"
 "runfiles_group/private/lib/entry.bzl" = "runfiles_group/private/lib/entry.bzli"
