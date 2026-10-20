@@ -1,0 +1,3 @@
+"""Canonical repository names for example expectations."""
+
+def repo(label: Label) -> str: ...
