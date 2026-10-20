@@ -8,6 +8,7 @@ manifest = "@rules_runfiles_group//:stubs.toml"
 "producer/rules/starlark_runtime.bzl" = "producer/rules/starlark_runtime.bzli"
 "producer/rules/starlark_toolchain.bzl" = "producer/rules/starlark_toolchain.bzli"
 "src/group_names.bzl" = "src/group_names.bzli"
+"stress/gen.bzl" = "stress/gen.bzli"
 
 # Match the strictness policy in ../sty.toml.
 [rules]

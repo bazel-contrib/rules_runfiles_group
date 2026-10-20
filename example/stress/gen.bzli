@@ -1,0 +1,3 @@
+"""Synthetic runfiles-group stress closures."""
+
+def stress_closure(name: str, n: int, src: str | Label = ...) -> None: ...
