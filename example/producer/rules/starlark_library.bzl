@@ -57,6 +57,7 @@ def _describe_starlark_library_runfiles(target, ctx):
 starlark_library_runfiles_group_describer = runfiles_groups.make_describer_rule(describe = _describe_starlark_library_runfiles)
 
 def _canonical_repo_name(ctx):
+    # type: (ctx[object, object]) -> str
     return ctx.label.repo_name or "_main"
 
 def _starlark_library_impl(ctx):

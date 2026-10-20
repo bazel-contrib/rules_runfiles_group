@@ -2,6 +2,7 @@
 manifest = "@rules_runfiles_group//:stubs.toml"
 
 [type-interfaces]
+"producer/providers/providers.bzl" = "producer/providers/providers.bzli"
 "producer/repository_rules/local_starlark_repository.bzl" = "producer/repository_rules/local_starlark_repository.bzli"
 "producer/rules/foreign_plugin.bzl" = "producer/rules/foreign_plugin.bzli"
 "producer/rules/runtime_toolchain.bzl" = "producer/rules/runtime_toolchain.bzli"
