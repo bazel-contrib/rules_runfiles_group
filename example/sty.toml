@@ -4,6 +4,7 @@ manifest = "@rules_runfiles_group//:stubs.toml"
 [type-interfaces]
 "producer/repository_rules/local_starlark_repository.bzl" = "producer/repository_rules/local_starlark_repository.bzli"
 "producer/rules/foreign_plugin.bzl" = "producer/rules/foreign_plugin.bzli"
+"producer/rules/starlark_runtime.bzl" = "producer/rules/starlark_runtime.bzli"
 "src/group_names.bzl" = "src/group_names.bzli"
 
 # Match the strictness policy in ../sty.toml.

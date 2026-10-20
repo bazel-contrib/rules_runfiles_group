@@ -18,6 +18,7 @@ exports_files(
         "packager.bzl",
         "providers.bzl",
         "runfiles_group_analysis_test.bzl",
+        "types.bzli",
     ],
     visibility = ["//visibility:public"],
 )

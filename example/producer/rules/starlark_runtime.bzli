@@ -1,0 +1,16 @@
+"""The runtime inputs and their runfiles groups."""
+
+load("@rules_runfiles_group//runfiles_group:types.bzli", _MergeFrom = "MergeFrom")
+
+def runtime_merge_from(interpreter_attr: str, standard_library_attr: str) -> list[_MergeFrom[ctx[object, object]]]: ...
+
+def starlark_runtime(
+    ctx: ctx[object, object],
+    interpreter: Target[FilesToRunProvider[File]],
+    standard_library: Target,
+) -> struct[{
+    "interpreter": File,
+    "interpreter_runfiles": runfiles,
+    "standard_library_runfiles": runfiles,
+    "standard_library_repo": str,
+}]: ...

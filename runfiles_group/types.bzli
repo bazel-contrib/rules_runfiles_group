@@ -1,0 +1,5 @@
+"""Types for the public runfiles group library."""
+
+load("//runfiles_group/private/lib:describe.bzli", _MergeFrom = "MergeFrom")
+
+type MergeFrom[C: ctx[object, object]] = _MergeFrom[C]
