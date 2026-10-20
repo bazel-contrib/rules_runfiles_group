@@ -13,7 +13,7 @@ def _local_starlark_repository_impl(rctx):
     star_files = [f for f in result.stdout.strip().split("\n") if f]
 
     # packages: map from package path (relative to repo root, "" for root) to list of (filename, byte_size).
-    packages = {}
+    packages = {}  # type: dict[str, list[tuple[str, int]]]
     root_str = str(repo_root)
     for abs_path in star_files:
         rel = abs_path[len(root_str) + 1:]

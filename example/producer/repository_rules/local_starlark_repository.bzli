@@ -1,0 +1,15 @@
+"""Create a local repository of Starlark sources."""
+
+def _local_starlark_repository_impl(rctx) -> None: ...
+
+def _write_build_file(
+    rctx: repository_ctx,
+    path: str,
+    target_name: str,
+    srcs: list[str],
+    repository: str,
+    weight: int,
+    deps: list[str],
+    main_module: str,
+    runfiles_group: str,
+) -> None: ...
