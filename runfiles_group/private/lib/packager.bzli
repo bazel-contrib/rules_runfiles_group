@@ -3,6 +3,13 @@
 load("//runfiles_group/private/providers:runfiles_group_info.bzl", "RunfilesGroupInfo")
 load("//runfiles_group/private/providers:runfiles_group_partial_info.bzl", "RunfilesGroupPartialInfo")
 
+PACKAGER_INFO_FIELDS: dict[{
+    "owned": str,
+    "shared": str,
+    "fallback": str,
+    "executable_group": str,
+}]
+
 type PackagerOps[T, C: ctx[object, object] = ctx[object, object]] = struct[{
     "materialize": Callable[[C, RunfilesGroupInfo], T],
     "merge": Callable[[C, Label | str, list[RunfilesGroupPartialInfo[T]]], T],
