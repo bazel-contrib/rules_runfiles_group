@@ -1,0 +1,78 @@
+"""A rule describes its own runfiles and the attributes it merges."""
+
+load("//runfiles_group/private/lib:partial.bzli", "MetadataOverrides", "Overrides")
+load("//runfiles_group/private/providers:runfiles_group_info.bzl", "RunfilesGroupInfo")
+load("//runfiles_group/private/providers:runfiles_group_partial_info.bzl", "RunfilesGroupPartialInfo")
+
+type Regroup = Callable[[RunfilesGroupPartialInfo[object], Label], Overrides | None]
+type _FallbackMode = Literal["ignore", "synthesize"]
+type Fallback[C: ctx[object, object]] = _FallbackMode | Callable[[C, Target], RunfilesGroupInfo | None]
+type _MergeFrom[F: Fallback[Never]] = struct[{
+    "attr": str | None,
+    "toolchain": Label | None,
+    "where": str,
+    "fallback": F,
+    "into": Label | str | None,
+    "regroup": Regroup | None,
+    "overrides": MetadataOverrides,
+    "relabels": bool,
+}]
+type MergeFrom[C: ctx[object, object]] = _MergeFrom[Fallback[C]]
+type Node[C: ctx[object, object]] = struct[{
+    "marker": Literal["runfiles_groups.node"],
+    "add": list[RunfilesGroupInfo] | tuple[RunfilesGroupInfo, ...],
+    "merge_from": list[MergeFrom[C]] | None,
+    "executable_group": Label | str | None,
+}]
+
+@overload
+def make_merge_from[C: ctx[object, object] = ctx[object, object]](
+    attr: str,
+    *,
+    toolchain: None = ...,
+    fallback: Callable[[C, Target], RunfilesGroupInfo | None],
+    into: Label | str | None = ...,
+    regroup: Regroup | None = ...,
+    **overrides: Unpack[MetadataOverrides],
+) -> _MergeFrom[Callable[[C, Target], RunfilesGroupInfo | None]]: ...
+
+@overload
+def make_merge_from(
+    attr: str,
+    *,
+    toolchain: None = ...,
+    fallback: _FallbackMode = ...,
+    into: Label | str | None = ...,
+    regroup: Regroup | None = ...,
+    **overrides: Unpack[MetadataOverrides],
+) -> _MergeFrom[_FallbackMode]: ...
+
+@overload
+def make_merge_from(
+    attr: None = ...,
+    *,
+    toolchain: Label,
+    fallback: _FallbackMode = ...,
+    into: Label | str | None = ...,
+    regroup: Regroup | None = ...,
+    **overrides: Unpack[MetadataOverrides],
+) -> _MergeFrom[_FallbackMode]: ...
+
+def make_merge_from[F: Fallback[Never] = Literal["ignore"]](
+    attr: str | None = ...,
+    *,
+    toolchain: Label | None = ...,
+    fallback: F = ...,
+    into: Label | str | None = ...,
+    regroup: Regroup | None = ...,
+    **overrides: Unpack[MetadataOverrides],
+) -> _MergeFrom[F | Literal["ignore"]]: ...
+
+def make_node[C: ctx[object, object] = ctx[object, object]](
+    *,
+    add: list[RunfilesGroupInfo] | tuple[RunfilesGroupInfo, ...] = ...,
+    merge_from: Iterable[str | MergeFrom[C]] | None = ...,
+    executable_group: Label | str | None = ...,
+) -> Node[C]: ...
+
+def make_describer_rule[C: ctx[object, object]](*, describe: Callable[[Target, C], Node[C] | None]) -> rule: ...

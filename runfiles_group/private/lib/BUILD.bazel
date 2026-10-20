@@ -6,6 +6,7 @@ load(":resolve_test.bzl", "resolve_test_suite")
 exports_files(
     [
         "content.bzli",
+        "describe.bzli",
         "entry.bzli",
         "names.bzli",
         "packager.bzli",

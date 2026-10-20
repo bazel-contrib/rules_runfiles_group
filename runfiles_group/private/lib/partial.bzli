@@ -5,7 +5,14 @@ load("//runfiles_group/private/providers:runfiles_group_partial_info.bzl", "Runf
 
 type Metadata = RunfilesGroupInfo | RunfilesGroupPartialInfo[object]
 
-type _Overrides = dict[{
+type MetadataOverrides = dict[{
+    "kind": NotRequired[str],
+    "rank": NotRequired[int],
+    "do_not_merge": NotRequired[bool],
+    "weight": NotRequired[int | None],
+    "merge_affinity": NotRequired[str],
+}]
+type Overrides = dict[{
     "name": NotRequired[Label | str],
     "kind": NotRequired[str],
     "rank": NotRequired[int],
@@ -23,14 +30,14 @@ def make_partial[T](
 
 def relabel[T](
     partial: RunfilesGroupPartialInfo[T],
-    overrides: _Overrides,
+    overrides: Overrides | MetadataOverrides,
 ) -> RunfilesGroupPartialInfo[T]: ...
 
-def check_overrides(where: str, overrides: _Overrides) -> None: ...
+def check_overrides(where: str, overrides: Overrides | MetadataOverrides) -> None: ...
 
 def derive[T](
     partial: RunfilesGroupPartialInfo[T],
-    **overrides: Unpack[_Overrides],
+    **overrides: Unpack[Overrides],
 ) -> RunfilesGroupPartialInfo[T]: ...
 
 def _combine_str(a: str, b: str) -> str: ...
