@@ -24,3 +24,7 @@ jobs:
         with:
           audit-loads: true
           bazel-version: '9.3.0'
+          files: |
+            runfiles_group/providers.bzl
+            runfiles_group/runfiles_group_analysis_test.bzl
+            runfiles_group/private/lib/constants.bzl
