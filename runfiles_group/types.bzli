@@ -1,6 +1,8 @@
 """Types for the public runfiles group library."""
 
 load("//runfiles_group/private/lib:describe.bzli", _MergeFrom = "MergeFrom", _Node = "Node")
+load("//runfiles_group/private/lib:resolved.bzli", _ResolvedGroups = "ResolvedGroups")
 
 type MergeFrom[C: ctx[object, object]] = _MergeFrom[C]
 type Node[C: ctx[object, object]] = _Node[C]
+type ResolvedGroups[N: Label | str, T] = _ResolvedGroups[N, T]

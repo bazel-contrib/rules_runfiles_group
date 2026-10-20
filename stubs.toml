@@ -13,3 +13,4 @@ format-version = 1
 "runfiles_group/private/providers/runfiles_group_describer_info.bzl" = "runfiles_group/private/providers/runfiles_group_describer_info.bzli"
 "runfiles_group/private/providers/runfiles_group_info.bzl" = "runfiles_group/private/providers/runfiles_group_info.bzli"
 "runfiles_group/private/providers/runfiles_group_partial_info.bzl" = "runfiles_group/private/providers/runfiles_group_partial_info.bzli"
+"runfiles_group/private/providers/runfiles_group_transform_info.bzl" = "runfiles_group/private/providers/runfiles_group_transform_info.bzli"
