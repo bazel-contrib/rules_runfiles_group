@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: tamird/sty@3861b29ea18c7c73b913d7d5531884ffad07af89
+      - uses: tamird/sty@dffb0f5fab413283b1b188179a297686915af5b8
         with:
           audit-loads: true
           bazel-version: '9.3.0'
@@ -30,7 +30,7 @@ jobs:
             runfiles_group/runfiles_group_analysis_test.bzl
             runfiles_group/private/lib/constants.bzl
       - name: Check example workspace
-        uses: tamird/sty@3861b29ea18c7c73b913d7d5531884ffad07af89
+        uses: tamird/sty@dffb0f5fab413283b1b188179a297686915af5b8
         with:
           artifact-name: sty-example
           audit-loads: true
