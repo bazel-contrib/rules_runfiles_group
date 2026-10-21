@@ -160,16 +160,20 @@ def resolve_name(ctx, ops, name, parts):
         metadata = combine(metadata, part, weight)
 
     kept = []
-    kept_coverage = []
+    kept_by_piece = {}
     for part, coverage in sorted([(part, _coverage(part)) for part in parts], key = _coverage_order):
         covered = False
-        for other in kept_coverage:
+
+        # A superset must contain every piece, including this first one. Indexing
+        # by piece avoids comparing each disjoint group with all earlier groups.
+        for other in kept_by_piece.get(coverage.keys()[0], []):
             if not [key for key in coverage if key not in other]:
                 covered = True
                 break
         if not covered:
             kept.append(part)
-            kept_coverage.append(coverage)
+            for key in coverage:
+                kept_by_piece.setdefault(key, []).append(coverage)
 
     if len(kept) == 1:
         return combine(kept[0], metadata, weight)
