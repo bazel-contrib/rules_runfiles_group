@@ -1,0 +1,14 @@
+"""The example toolchain binary rule."""
+
+load("@rules_runfiles_group//runfiles_group:types.bzli", _Node = "Node")
+
+class _ToolchainLookup(Protocol):
+    def __getitem__(self, key: Label) -> object: ...
+
+def _describe_toolchain_binary_runfiles(
+    target: Target[FilesToRunProvider[File]],
+    ctx: ctx[object, object],
+) -> _Node[ctx[object, object]]: ...
+
+def _toolchain_runfiles(toolchains: _ToolchainLookup, toolchain_type: Label) -> runfiles | None: ...
+def _toolchain_binary_impl(ctx) -> list[DefaultInfo]: ...
