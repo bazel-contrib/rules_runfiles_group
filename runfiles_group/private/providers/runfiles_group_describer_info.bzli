@@ -2,6 +2,6 @@
 
 load("//runfiles_group/private/lib:describe.bzli", "Node")
 
-def RunfilesGroupDescriberInfo[C: ctx[object, object]](
-    *, describe: Callable[[Target, C], Node[C] | None],
-) -> record[{"describe": Callable[[Target, C], Node[C] | None]}]: ...
+def RunfilesGroupDescriberInfo[C: ctx[object, object], D: Target = Target](
+    *, describe: Callable[[D, C], Node[C] | None],
+) -> record[{"describe": Callable[[D, C], Node[C] | None]}]: ...
