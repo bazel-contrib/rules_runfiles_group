@@ -44,31 +44,47 @@ def _cheapest_pair(buckets, by_name, sort_keys, default_weight):
     for _key, names in buckets.items():
         if len(names) < 2:
             continue
-        w1 = None
-        n1 = None
-        k1 = None
-        w2 = None
-        n2 = None
-        k2 = None
-        for name in names:
+
+        # Seed both minima from surviving groups before comparing the rest.
+        first_index = None
+        second_index = None
+        for index in range(len(names)):
+            if by_name.get(names[index]) == None:
+                continue
+            if first_index == None:
+                first_index = index
+            else:
+                second_index = index
+                break
+        if first_index == None or second_index == None:
+            continue
+
+        n1 = names[first_index]
+        n2 = names[second_index]
+        w1 = _effective_weight(by_name[n1], default_weight)
+        w2 = _effective_weight(by_name[n2], default_weight)
+        k1 = sort_keys[n1]
+        k2 = sort_keys[n2]
+        if w2 < w1 or (w2 == w1 and k2 < k1):
+            n1, n2, w1, w2, k1, k2 = n2, n1, w2, w1, k2, k1
+        for index in range(second_index + 1, len(names)):
+            name = names[index]
             entry = by_name.get(name)
             if entry == None:
                 continue  # merged away in an earlier step
             weight = _effective_weight(entry, default_weight)
             key = sort_keys[name]
-            if n1 == None or weight < w1 or (weight == w1 and key < k1):
+            if weight < w1 or (weight == w1 and key < k1):
                 w2 = w1
                 n2 = n1
                 k2 = k1
                 w1 = weight
                 n1 = name
                 k1 = key
-            elif n2 == None or weight < w2 or (weight == w2 and key < k2):
+            elif weight < w2 or (weight == w2 and key < k2):
                 w2 = weight
                 n2 = name
                 k2 = key
-        if n2 == None:
-            continue
         candidate = (w1 + w2, by_name[n1].rank, k1, k2)
         if best == None or candidate < best[0]:
             best = (candidate, n1, n2)
