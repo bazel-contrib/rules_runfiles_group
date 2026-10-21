@@ -1,0 +1,10 @@
+"""The example plain binary rule."""
+
+load("@rules_runfiles_group//runfiles_group:types.bzli", _Node = "Node")
+
+def _describe_plain_binary_runfiles(
+    target: Target[FilesToRunProvider[File]],
+    ctx: ctx[object, object],
+) -> _Node[ctx[object, object]]: ...
+
+def _plain_binary_impl(ctx) -> list[DefaultInfo]: ...
