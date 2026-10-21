@@ -10,6 +10,19 @@ PACKAGER_INFO_FIELDS: dict[{
     "executable_group": str,
 }]
 
+class PackagerInfo[T](Protocol):
+    @property
+    def owned(self) -> depset[RunfilesGroupPartialInfo[T]]: ...
+
+    @property
+    def shared(self) -> depset[RunfilesGroupPartialInfo[T]]: ...
+
+    @property
+    def fallback(self) -> RunfilesGroupPartialInfo[T] | None: ...
+
+    @property
+    def executable_group(self) -> Label | str | None: ...
+
 type PackagerOps[T, C: ctx[object, object] = ctx[object, object]] = struct[{
     "materialize": Callable[[C, RunfilesGroupInfo], T],
     "merge": Callable[[C, Label | str, list[RunfilesGroupPartialInfo[T]]], T],

@@ -9,6 +9,7 @@ exports_files(
         "content.bzli",
         "describe.bzli",
         "entry.bzli",
+        "finalize.bzli",
         "limit.bzli",
         "names.bzli",
         "packager.bzli",

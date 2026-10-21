@@ -5,6 +5,7 @@ format-version = 1
 "runfiles_group/private/lib/content.bzl" = "runfiles_group/private/lib/content.bzli"
 "runfiles_group/private/lib/describe.bzl" = "runfiles_group/private/lib/describe.bzli"
 "runfiles_group/private/lib/entry.bzl" = "runfiles_group/private/lib/entry.bzli"
+"runfiles_group/private/lib/finalize.bzl" = "runfiles_group/private/lib/finalize.bzli"
 "runfiles_group/private/lib/limit.bzl" = "runfiles_group/private/lib/limit.bzli"
 "runfiles_group/private/lib/names.bzl" = "runfiles_group/private/lib/names.bzli"
 "runfiles_group/private/lib/packager.bzl" = "runfiles_group/private/lib/packager.bzli"
