@@ -138,7 +138,7 @@ def limit(ctx, ops, resolved, *, max_groups, default_weight = 0, merged_group_na
             group_count = len(by_name),
         )
 
-    by_name = dict(by_name)
+    by_name = dict(by_name)  # type: dict[Label | str, RunfilesGroupPartialInfo[T]]
 
     # String-named groups are already indexed in by_name. Index Label-named
     # groups by their canonical spelling too, so callback results cannot collide
@@ -158,9 +158,9 @@ def limit(ctx, ops, resolved, *, max_groups, default_weight = 0, merged_group_na
     # Buckets are built once and patched incrementally: a merge only touches the
     # two groups involved and their replacement. sort_keys holds one comparison
     # token per group so tie-breaking never compares a Label against a string.
-    by_rank_affinity = {}
-    by_rank = {}
-    sort_keys = {}
+    by_rank_affinity = {}  # type: dict[tuple[int, str], list[Label | str]]
+    by_rank = {}  # type: dict[int, list[Label | str]]
+    sort_keys = {}  # type: dict[Label | str, _SortKey]
     for name, entry in by_name.items():
         if entry.do_not_merge:
             # Never bucketed, so never compared: no sort key needed. It cannot

@@ -1,0 +1,44 @@
+"""Group limits preserve the packager's handle type."""
+
+load("//runfiles_group/private/lib:names.bzli", _SortKey = "SortKey")
+load("//runfiles_group/private/lib:packager.bzli", "PackagerOps")
+load("//runfiles_group/private/providers:runfiles_group_partial_info.bzl", "RunfilesGroupPartialInfo")
+
+type _Name = Label | str
+type _LimitInput[N: _Name, T] = struct[{
+    "by_name": dict[N, RunfilesGroupPartialInfo[T]],
+    "executable_group": N | None,
+}, ...]
+type FinalizedGroups[N: _Name, T] = struct[{
+    "groups": list[RunfilesGroupPartialInfo[T]],
+    "by_name": dict[N, RunfilesGroupPartialInfo[T]],
+    "executable_group": N | None,
+    "group_count": int,
+}]
+type MergedGroupName = Callable[[_Name, int, _Name, int], _Name]
+
+def _effective_weight[T](entry: RunfilesGroupPartialInfo[T], default_weight: int) -> int: ...
+
+def _bucket_add[K, N](buckets: dict[K, list[N]], key: K, name: N) -> None: ...
+
+def _bucket_remove[K, N](buckets: dict[K, list[N]], key: K, name: N) -> None: ...
+
+def _affinity_key[T](entry: RunfilesGroupPartialInfo[T]) -> tuple[int, str]: ...
+
+def _cheapest_pair[K, N: _Name, T](
+    buckets: Mapping[K, Sequence[N]],
+    by_name: Mapping[N, RunfilesGroupPartialInfo[T]],
+    sort_keys: Mapping[N, _SortKey],
+    default_weight: int,
+) -> tuple[N, N] | None: ...
+
+def limit[N: _Name, T, C: ctx[object, object]](
+    ctx: C,
+    ops: PackagerOps[T, C],
+    resolved: _LimitInput[N, T],
+    *,
+    max_groups: int,
+    default_weight: int = ...,
+    merged_group_name: MergedGroupName | None = ...,
+    executable_group_last: bool = ...,
+) -> FinalizedGroups[N, T] | FinalizedGroups[_Name, T]: ...
