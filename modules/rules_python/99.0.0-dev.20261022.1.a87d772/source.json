@@ -1,0 +1,9 @@
+{
+  "url": "https://bazel-contrib.github.io/rules_runfiles_group/assets/rules_python/99.0.0-dev.20261022.1.a87d772/source.tar.gz",
+  "integrity": "sha256-1rmciI8NgyRbKqlTBWBtCD5I5vccgLHPrYYnOx76V5M=",
+  "strip_prefix": "rules_python-a87d7721a9fc89fe89da1f2b220f0917c8392a3e",
+  "patches": {
+    "0000-set-version.patch": "sha256-aKseMBfeMA4SMy77HOAKin44RkSqOUa0MSokKNs3fNQ="
+  },
+  "patch_strip": 1
+}
