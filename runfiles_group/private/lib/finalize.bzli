@@ -8,7 +8,7 @@ def finalize[T, C: ctx[object, object]](
     info: _PackagerInfo[T],
     ops: _PackagerOps[T, C],
     *,
-    aspect_hints: Iterable[Target],
+    aspect_hints: Collection[Target],
     max_groups: int | None = ...,
     default_weight: int = ...,
     merged_group_name: _MergedGroupName | None = ...,

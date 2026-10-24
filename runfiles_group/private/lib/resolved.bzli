@@ -29,6 +29,6 @@ def make_resolved[N: _Name, T](
 ) -> ResolvedGroups[N, T]: ...
 
 def resolved_groups[T](
-    groups: Iterable[RunfilesGroupPartialInfo[T]],
+    groups: Collection[RunfilesGroupPartialInfo[T]],
     *, executable_group: _Name | None = ...,
 ) -> ResolvedGroups[_Name, T]: ...

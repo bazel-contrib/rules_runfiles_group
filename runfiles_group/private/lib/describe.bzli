@@ -71,7 +71,7 @@ def make_merge_from[F: Fallback[Never] = Literal["ignore"]](
 def make_node[C: ctx[object, object] = ctx[object, object]](
     *,
     add: list[RunfilesGroupInfo] | tuple[RunfilesGroupInfo, ...] = ...,
-    merge_from: Iterable[str | MergeFrom[C]] | None = ...,
+    merge_from: Collection[str | MergeFrom[C]] | None = ...,
     executable_group: Label | str | None = ...,
 ) -> Node[C]: ...
 
