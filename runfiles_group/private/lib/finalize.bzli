@@ -1,0 +1,16 @@
+"""Fold and finalize the root target's runfiles groups."""
+
+load("//runfiles_group/private/lib:limit.bzli", _FinalizedGroups = "FinalizedGroups", _MergedGroupName = "MergedGroupName")
+load("//runfiles_group/private/lib:packager.bzli", _PackagerInfo = "PackagerInfo", _PackagerOps = "PackagerOps")
+
+def finalize[T, C: ctx[object, object]](
+    ctx: C,
+    info: _PackagerInfo[T],
+    ops: _PackagerOps[T, C],
+    *,
+    aspect_hints: Collection[Target],
+    max_groups: int | None = ...,
+    default_weight: int = ...,
+    merged_group_name: _MergedGroupName | None = ...,
+    executable_group_last: bool = ...,
+) -> _FinalizedGroups[Label | str, T]: ...

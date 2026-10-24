@@ -1,0 +1,15 @@
+"""Starlark library implementation contracts."""
+
+load("@rules_runfiles_group//runfiles_group:types.bzli", _Node = "Node")
+load("//producer/providers:providers.bzli", _StarlarkInfo = "StarlarkInfo")
+
+type _SubjectAttrs = struct[{
+    "merge_affinity": str,
+    "repository": str,
+    "runfiles_group": str,
+    "runfiles_weight": int,
+}, ...]
+type _DescriberContext = ctx[object, object, _SubjectAttrs]
+
+def _describe_starlark_library_runfiles(target: Target, ctx: _DescriberContext) -> _Node[_DescriberContext]: ...
+def _starlark_library_impl(ctx) -> list[DefaultInfo | _StarlarkInfo]: ...

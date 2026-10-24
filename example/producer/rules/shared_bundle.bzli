@@ -1,0 +1,9 @@
+"""Shared bundle implementation contracts."""
+
+load("@rules_runfiles_group//runfiles_group:types.bzli", _Node = "Node")
+
+type _SubjectAttrs = struct[{"content_form": str, "group_name": str, "rank": int}, ...]
+type _DescriberContext = ctx[object, object, _SubjectAttrs]
+
+def _describe_shared_bundle_runfiles(target: Target, ctx: _DescriberContext) -> _Node[_DescriberContext]: ...
+def _shared_bundle_impl(ctx) -> list[DefaultInfo]: ...

@@ -18,9 +18,12 @@ def _symlink_runfiles(ctx, files):
     )
 
 def _describe_symlink_bundle_runfiles(target, ctx):
+    srcs = getattr(ctx.rule.files, "srcs", None)
+    if srcs == None:
+        fail("{}: symlink bundle describer requires a label-valued srcs attribute".format(target.label))
     return runfiles_groups.node(add = [runfiles_groups.entry(
         name = ctx.label,
-        content = _symlink_runfiles(ctx, ctx.rule.files.srcs),
+        content = _symlink_runfiles(ctx, srcs),
         kind = "first_party",
     )])
 

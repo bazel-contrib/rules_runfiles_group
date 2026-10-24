@@ -16,7 +16,10 @@ def piece_key(raw):
     Returns:
         (contributor, handle).
     """
-    return (raw.contributor, raw.handle)
+    contributor = raw.contributor
+    if contributor == None:
+        fail("A raw runfiles group piece must have a contributor")
+    return (contributor, raw.handle)
 
 def _coverage(partial):
     """dict of piece key -> True, for everything a partial's handle holds."""
@@ -160,7 +163,7 @@ def resolve_name(ctx, ops, name, parts):
         metadata = combine(metadata, part, weight)
 
     kept = []
-    kept_by_piece = {}
+    kept_by_piece = {}  # type: dict[_Piece[T], list[_Coverage[T]]]
     for part, coverage in sorted([(part, _coverage(part)) for part in parts], key = _coverage_order):
         covered = False
 

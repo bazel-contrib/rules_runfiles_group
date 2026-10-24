@@ -84,11 +84,30 @@ fallback = "synthesize"; runfiles_groups.finalize() uses it for such a root.
     "executable_group": "Label, str or None: this target's executable_group. Only the root's is used.",
 }
 
+def _is_string_list(value):
+    if type(value) != "list":
+        return False
+    for item in value:
+        if type(item) != "string":
+            return False
+    return True
+
+def _is_label_list(value):
+    if type(value) != "list":
+        return False
+    for item in value:
+        if type(item) != "Label":
+            return False
+    return True
+
 def _propagation_filter(propagation_ctx):
     rule_attrs = propagation_ctx.rule.attr
     attrs = getattr(rule_attrs, "_runfiles_group_attrs", None)
     if attrs != None:
-        return attrs.value
+        value = attrs.value
+        if not _is_string_list(value):
+            fail("{}: _runfiles_group_attrs must be a list of strings".format(propagation_ctx.rule.label))
+        return value
     if not hasattr(rule_attrs, "_aspect_rule_hints"):
         # The rule cannot describe its runfiles groups, so the aspect stops here
         # and the target is synthesized from its DefaultInfo.
@@ -106,7 +125,10 @@ def _toolchains_propagation_filter(propagation_ctx):
     hints = getattr(propagation_ctx.rule.attr, "_aspect_rule_hints", None)
     if hints == None:
         return []
-    return hints.value
+    value = hints.value
+    if not _is_label_list(value):
+        fail("{}: _aspect_rule_hints must be a list of Labels".format(propagation_ctx.rule.label))
+    return value
 
 TOOLCHAINS_ASPECTS = (
     _toolchains_propagation_filter if bazel_features.rules.aspect_propagation_context else ["*"] if bazel_features.rules.supports_toolchains_aspects_star else []

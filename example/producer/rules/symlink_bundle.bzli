@@ -1,0 +1,12 @@
+"""Symlink bundle implementation contracts."""
+
+load("@rules_runfiles_group//runfiles_group:types.bzli", _Node = "Node")
+
+def _symlink_runfiles(ctx: ctx[object, object], files: Collection[File]) -> runfiles: ...
+
+def _describe_symlink_bundle_runfiles(
+    target: Target,
+    ctx: ctx[object, object],
+) -> _Node[ctx[object, object]]: ...
+
+def _symlink_bundle_impl(ctx) -> list[DefaultInfo]: ...

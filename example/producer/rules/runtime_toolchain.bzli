@@ -1,0 +1,7 @@
+"""The example runtime and plain toolchain rules."""
+
+load("@rules_runfiles_group//runfiles_group:types.bzli", _Node = "Node")
+
+def _describe_runtime_toolchain_runfiles(target: Target, _ctx: ctx[object, object]) -> _Node[ctx[object, object]]: ...
+
+def _toolchain_impl(ctx) -> list[DefaultInfo | ToolchainInfo]: ...

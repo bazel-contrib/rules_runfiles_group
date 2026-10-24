@@ -1,0 +1,8 @@
+"""Asset bundle implementation contracts."""
+
+load("@rules_runfiles_group//runfiles_group:types.bzli", _Node = "Node")
+
+type _DescriberContext = ctx[object, object, struct[{"weight": int}, ...]]
+
+def _describe_asset_bundle_runfiles(target: Target, ctx: _DescriberContext) -> _Node[_DescriberContext]: ...
+def _asset_bundle_impl(ctx) -> list[DefaultInfo]: ...

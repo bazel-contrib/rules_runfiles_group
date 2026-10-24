@@ -1,0 +1,18 @@
+format-version = 1
+
+[files]
+"runfiles_group/private/lib/attrs.bzl" = "runfiles_group/private/lib/attrs.bzli"
+"runfiles_group/private/lib/content.bzl" = "runfiles_group/private/lib/content.bzli"
+"runfiles_group/private/lib/describe.bzl" = "runfiles_group/private/lib/describe.bzli"
+"runfiles_group/private/lib/entry.bzl" = "runfiles_group/private/lib/entry.bzli"
+"runfiles_group/private/lib/finalize.bzl" = "runfiles_group/private/lib/finalize.bzli"
+"runfiles_group/private/lib/limit.bzl" = "runfiles_group/private/lib/limit.bzli"
+"runfiles_group/private/lib/names.bzl" = "runfiles_group/private/lib/names.bzli"
+"runfiles_group/private/lib/packager.bzl" = "runfiles_group/private/lib/packager.bzli"
+"runfiles_group/private/lib/partial.bzl" = "runfiles_group/private/lib/partial.bzli"
+"runfiles_group/private/lib/resolve.bzl" = "runfiles_group/private/lib/resolve.bzli"
+"runfiles_group/private/lib/resolved.bzl" = "runfiles_group/private/lib/resolved.bzli"
+"runfiles_group/private/providers/runfiles_group_describer_info.bzl" = "runfiles_group/private/providers/runfiles_group_describer_info.bzli"
+"runfiles_group/private/providers/runfiles_group_info.bzl" = "runfiles_group/private/providers/runfiles_group_info.bzli"
+"runfiles_group/private/providers/runfiles_group_partial_info.bzl" = "runfiles_group/private/providers/runfiles_group_partial_info.bzli"
+"runfiles_group/private/providers/runfiles_group_transform_info.bzl" = "runfiles_group/private/providers/runfiles_group_transform_info.bzli"

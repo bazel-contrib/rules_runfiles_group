@@ -1,0 +1,13 @@
+"""A transform preserves every packager's handle type."""
+
+load("//runfiles_group/private/lib:resolved.bzli", "ResolvedGroups")
+
+class _Transform(Protocol):
+    # The callback is called positionally; its parameter name is unconstrained.
+    def __call__[N: Label | str, T](
+        self, __resolved: ResolvedGroups[N, T],
+    ) -> ResolvedGroups[N, T] | ResolvedGroups[Label | str, T]: ...
+
+def _make_runfilestransforminfo_init(*, transform: _Transform) -> dict[{"transform": _Transform}]: ...
+
+def RunfilesGroupTransformInfo(*, transform: _Transform) -> record[{"transform": _Transform}]: ...

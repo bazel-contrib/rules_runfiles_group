@@ -1,0 +1,49 @@
+"""Resolve overlapping groups without changing their handle type."""
+
+load("//runfiles_group/private/lib:packager.bzli", "PackagerOps")
+load("//runfiles_group/private/lib:partial.bzli", "Metadata")
+load("//runfiles_group/private/providers:runfiles_group_partial_info.bzl", "RunfilesGroupPartialInfo")
+
+type _Piece[T] = tuple[Label, T]
+type _Coverage[T] = dict[_Piece[T], bool]
+
+def piece_key[T](raw: RunfilesGroupPartialInfo[T]) -> _Piece[T]: ...
+
+def _coverage[T](partial: RunfilesGroupPartialInfo[T]) -> _Coverage[T]: ...
+
+def _coverage_order[T](
+    entry: tuple[RunfilesGroupPartialInfo[T], _Coverage[T]],
+) -> tuple[int, list[Label]]: ...
+
+def _piece_as_input[T](
+    part: RunfilesGroupPartialInfo[T],
+    key: _Piece[T],
+) -> RunfilesGroupPartialInfo[T]: ...
+
+def disjoint_inputs[T](
+    parts: list[RunfilesGroupPartialInfo[T]],
+) -> list[RunfilesGroupPartialInfo[T]]: ...
+
+def _inputs_weight[T](inputs: list[RunfilesGroupPartialInfo[T]]) -> int | None: ...
+
+def make_merged[T, C: ctx[object, object]](
+    ctx: C,
+    ops: PackagerOps[T, C],
+    name: Label | str,
+    inputs: list[RunfilesGroupPartialInfo[T]],
+    metadata: Metadata,
+    weight: int | None,
+) -> RunfilesGroupPartialInfo[T]: ...
+
+def resolve_name[T, C: ctx[object, object]](
+    ctx: C,
+    ops: PackagerOps[T, C],
+    name: Label | str,
+    parts: list[RunfilesGroupPartialInfo[T]],
+) -> RunfilesGroupPartialInfo[T]: ...
+
+def fold[T, C: ctx[object, object]](
+    ctx: C,
+    ops: PackagerOps[T, C],
+    partials: list[RunfilesGroupPartialInfo[T]],
+) -> dict[Label | str, RunfilesGroupPartialInfo[T]]: ...

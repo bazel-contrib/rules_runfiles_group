@@ -1,0 +1,10 @@
+"""The interpreter transform preserves the packager's handle type."""
+
+load("@rules_runfiles_group//runfiles_group:providers.bzl", _TransformInfo = "RunfilesGroupTransformInfo")
+load("@rules_runfiles_group//runfiles_group:types.bzli", _ResolvedGroups = "ResolvedGroups")
+
+def _skip_interpreter_transform[N: Label | str, T](
+    resolved: _ResolvedGroups[N, T],
+) -> _ResolvedGroups[N, T] | _ResolvedGroups[Label | str, T]: ...
+
+def _skip_interpreter_impl(_ctx) -> list[_TransformInfo]: ...

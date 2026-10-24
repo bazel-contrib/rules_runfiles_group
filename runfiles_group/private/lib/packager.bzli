@@ -1,0 +1,60 @@
+"""A packager uses one handle type across materialization and merging."""
+
+load("//runfiles_group/private/providers:runfiles_group_info.bzl", "RunfilesGroupInfo")
+load("//runfiles_group/private/providers:runfiles_group_partial_info.bzl", "RunfilesGroupPartialInfo")
+
+PACKAGER_INFO_FIELDS: dict[{
+    "owned": str,
+    "shared": str,
+    "fallback": str,
+    "executable_group": str,
+}]
+
+class PackagerInfo[T](Protocol):
+    @property
+    def owned(self) -> depset[RunfilesGroupPartialInfo[T]]: ...
+
+    @property
+    def shared(self) -> depset[RunfilesGroupPartialInfo[T]]: ...
+
+    @property
+    def fallback(self) -> RunfilesGroupPartialInfo[T] | None: ...
+
+    @property
+    def executable_group(self) -> Label | str | None: ...
+
+type PackagerOps[T, C: ctx[object, object] = ctx[object, object]] = struct[{
+    "materialize": Callable[[C, RunfilesGroupInfo], T],
+    "merge": Callable[[C, Label | str, list[RunfilesGroupPartialInfo[T]]], T],
+    "dedup": Literal["eager", "root"],
+}]
+
+def _is_string_list(value: object) -> TypeIs[list[str]]: ...
+
+def _is_label_list(value: object) -> TypeIs[list[Label]]: ...
+
+def _propagation_filter(propagation_ctx: propagation_ctx) -> list[str]: ...
+
+def _toolchains_propagation_filter(propagation_ctx: propagation_ctx) -> list[Label]: ...
+
+def check_ctx(where: str, ctx: object) -> None: ...
+
+def check_ops(where: str, ops: object) -> None: ...
+
+def packager_ops[T, C: ctx[object, object]](
+    *,
+    materialize: Callable[[C, RunfilesGroupInfo], T],
+    merge: Callable[[C, Label | str, list[RunfilesGroupPartialInfo[T]]], T],
+    dedup: Literal["eager", "root"] = ...,
+) -> PackagerOps[T, C]: ...
+
+def _identity_materialize(
+    _ctx: ctx[object, object],
+    entry: RunfilesGroupInfo,
+) -> depset[File] | runfiles: ...
+
+def _identity_merge(
+    ctx: ctx[object, object],
+    _name: Label | str,
+    partials: list[RunfilesGroupPartialInfo[depset[File] | runfiles]],
+) -> depset[File] | runfiles: ...

@@ -1,0 +1,12 @@
+"""Starlark source and repository metadata."""
+
+def StarlarkInfo(
+    *,
+    sources: depset[File],
+    loadpath: str,
+    repos: depset[tuple[str, str]],
+) -> record[{
+    "sources": depset[File],
+    "loadpath": str,
+    "repos": depset[tuple[str, str]],
+}]: ...

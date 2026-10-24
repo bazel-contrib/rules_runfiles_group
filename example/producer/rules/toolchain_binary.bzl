@@ -23,14 +23,25 @@ def _describe_toolchain_binary_runfiles(target, ctx):
 
 toolchain_binary_runfiles_group_describer = runfiles_groups.make_describer_rule(describe = _describe_toolchain_binary_runfiles)
 
+def _toolchain_runfiles(toolchains, toolchain_type):
+    toolchain = toolchains[toolchain_type]
+    if toolchain == None:
+        return None
+
+    value = getattr(toolchain, "runfiles", None)
+    if type(value) != "runfiles":
+        actual = type(value) if hasattr(toolchain, "runfiles") else "no runfiles field"
+        fail("toolchain {} must provide runfiles; got {}".format(toolchain_type, actual))
+    return value
+
 def _toolchain_binary_impl(ctx):
     exe = ctx.actions.declare_file(ctx.label.name)
     ctx.actions.write(exe, "#!/bin/sh\n", is_executable = True)
     runfiles = ctx.runfiles(files = [exe])
     for toolchain_type in [_RUNTIME, _TOOL, _MISSING]:
-        toolchain = ctx.toolchains[toolchain_type]
-        if toolchain != None:
-            runfiles = runfiles.merge(toolchain.runfiles)
+        toolchain_runfiles = _toolchain_runfiles(ctx.toolchains, toolchain_type)
+        if toolchain_runfiles != None:
+            runfiles = runfiles.merge(toolchain_runfiles)
     return [DefaultInfo(executable = exe, runfiles = runfiles)]
 
 toolchain_binary = rule(

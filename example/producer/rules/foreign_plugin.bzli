@@ -1,0 +1,3 @@
+"""A plugin with separate build-only and runtime outputs."""
+
+def _foreign_plugin_impl(ctx) -> list[DefaultInfo]: ...

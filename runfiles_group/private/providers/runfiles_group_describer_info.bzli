@@ -1,0 +1,7 @@
+"""The describer supplies a node for the visited rule's context."""
+
+load("//runfiles_group/private/lib:describe.bzli", "Node")
+
+def RunfilesGroupDescriberInfo[C: ctx[object, object], D: Target = Target](
+    *, describe: Callable[[D, C], Node[C] | None],
+) -> record[{"describe": Callable[[D, C], Node[C] | None]}]: ...

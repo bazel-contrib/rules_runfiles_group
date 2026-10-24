@@ -63,6 +63,18 @@ starlark_library(
     runfiles_weight = 40,
 )
 
+starlark_library(
+    name = "named_source_library",
+    srcs = ["lib_a.star"],
+    runfiles_group = "example#named_sources",
+)
+
+runfiles_group_analysis_test(
+    name = "test_named_library_sources",
+    binaries = [":named_source_library"],
+    expected_group_names = ["example#named_sources"],
+)
+
 # A second, unrelated "ruleset". Everything it produces carries the
 # "asset_bundle" merge_affinity (see producer/rules/asset_bundle.bzl), which is
 # distinct from the "starlark" affinity used by starlark_library/starlark_binary.

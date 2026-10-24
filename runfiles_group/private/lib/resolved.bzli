@@ -1,0 +1,34 @@
+"""Resolved groups retain the packager handle type."""
+
+load("//runfiles_group/private/providers:runfiles_group_partial_info.bzl", "RunfilesGroupPartialInfo")
+
+type _Name = Label | str
+type ResolvedGroups[N: _Name, T] = struct[{
+    "groups": list[RunfilesGroupPartialInfo[T]],
+    "by_name": dict[N, RunfilesGroupPartialInfo[T]],
+    "executable_group": N | None,
+}]
+
+def order_key[T](entry: RunfilesGroupPartialInfo[T]) -> tuple[int, int, _Name]: ...
+
+def ordered_groups[N: _Name, T](
+    by_name: Mapping[N, RunfilesGroupPartialInfo[T]],
+    executable_group: N | None,
+    executable_group_last: bool,
+) -> list[RunfilesGroupPartialInfo[T]]: ...
+
+def raise_executable_group[N: _Name, T](
+    by_name: dict[N, RunfilesGroupPartialInfo[T]],
+    executable_group: N | None,
+) -> dict[N, RunfilesGroupPartialInfo[T]]: ...
+
+def make_resolved[N: _Name, T](
+    by_name: dict[N, RunfilesGroupPartialInfo[T]],
+    executable_group: N | None,
+    executable_group_last: bool = ...,
+) -> ResolvedGroups[N, T]: ...
+
+def resolved_groups[T](
+    groups: Collection[RunfilesGroupPartialInfo[T]],
+    *, executable_group: _Name | None = ...,
+) -> ResolvedGroups[_Name, T]: ...

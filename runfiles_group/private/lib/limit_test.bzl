@@ -36,6 +36,19 @@ def _valid_impl(ctx):
         merged_group_name = _fresh_label,
     )
     asserts.equals(env, [Label(":merged")], [group.name for group in result.groups])
+    result = limit(
+        ctx,
+        IDENTITY_OPS,
+        resolved_groups([
+            _partial("third", 5),
+            _partial("second", 2),
+            _partial("first", 2),
+            _partial("heavy", 9),
+        ]),
+        max_groups = 3,
+        merged_group_name = _lighter,
+    )
+    asserts.equals(env, ["first", "heavy", "third"], [group.name for group in result.groups])
     return unittest.end(env)
 
 _valid_test = unittest.make(_valid_impl)
